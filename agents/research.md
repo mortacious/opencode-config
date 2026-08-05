@@ -6,6 +6,14 @@ permission:
   bash: deny
   webfetch: allow
   websearch: allow
+mcps:
+  - websearch
+  - context7
+  - semantic-scholar
+  - arxiv
+  - github
+  - dblp
+  - sourcegraph
   task:
     "*": deny
     "explore": allow

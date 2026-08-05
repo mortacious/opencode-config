@@ -16,6 +16,37 @@
         "--mcp"
       ],
       "enabled": true
+    },
+    "semantic-scholar": {
+      "type": "local",
+      "command": ["npx", "-y", "@xbghc/semanticscholar-mcp"],
+      "environment": { "SEMANTIC_SCHOLAR_API_KEY": "{env:SEMANTIC_SCHOLAR_API_KEY}" },
+      "enabled": true
+    },
+    "arxiv": {
+      "type": "local",
+      "command": ["npx", "-y", "@cyanheads/arxiv-mcp-server"],
+      "enabled": true
+    },
+    "github": {
+      "type": "local",
+      "command": ["{env:HOME}/.config/opencode/bin/github-mcp-server", "stdio", "--read-only", "--toolsets", "repos,issues,pull_requests,users"],
+      "environment": { "GITHUB_PERSONAL_ACCESS_TOKEN": "{env:GITHUB_PERSONAL_ACCESS_TOKEN}" },
+      "enabled": true
+    },
+    "dblp": {
+      "type": "local",
+      "command": ["{env:HOME}/.config/opencode/.venv/bin/mcp-dblp"],
+      "enabled": true
+    },
+    "sourcegraph": {
+      "type": "local",
+      "command": ["{env:HOME}/.config/opencode/.venv/bin/sourcegraph-mcp"],
+      "environment": {
+        "SRC_ENDPOINT": "{env:SRC_ENDPOINT}",
+        "SRC_ACCESS_TOKEN": "{env:SRC_ACCESS_TOKEN}"
+      },
+      "enabled": false
     }
   },
   "agent": {

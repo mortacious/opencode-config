@@ -30,8 +30,9 @@ Subagents (`mode: subagent`):
 - `sidekick` - mechanical execution. Full `edit` + `bash`, but cannot `git commit`/`push` (direct and common wrapper forms are denied). Default executor for code changes.
 - `design` - frontend/UI. `edit` + `bash` allowed, `external_directory` denied.
 - `reviewer` - plan/diff critique. `edit` denied; read-only git + lint/test + `plan-review`/`reflect` skills.
-- `research`, `explore` - read-only. `webfetch`/`websearch` allowed; `research` may delegate onward to `explore`.
-- `sparring` - scientific critic. Web tools only (`webfetch`, `websearch`, `date`).
+- `research` - read-only research. `webfetch`/`websearch` plus the research-API MCP servers (`semantic-scholar`, `arxiv`, `github`, `dblp`, `sourcegraph`) and `context7`; may delegate onward to `explore`.
+- `explore` - read-only. `webfetch`/`websearch` allowed.
+- `sparring` - scientific critic. Read-only (no `edit`/`bash`/`task`): `webfetch`, `websearch`, `date`, plus the research-API MCP servers (`semantic-scholar`, `arxiv`, `github`, `dblp`, `sourcegraph`) and `context7` for library-docs verification.
 
 When editing agent definitions, preserve this separation: primaries must stay unable to edit; execution must stay unable to commit.
 
@@ -42,6 +43,8 @@ Primary agents (`build`, `plan`, `sparring`-as-primary-when-invoked-directly, `r
 ## MCP servers
 
 `codegraph` is configured as a local MCP server (`codegraph serve --mcp`). It only returns results for projects that have a `.codegraph/` index; this config dir has none, so queries here need an explicit `projectPath` pointing at an indexed project. The `build` agent is allowlisted to run `codegraph init` and `codegraph update`, and will create or refresh an index in a code project that lacks one before querying it. `gh_grep` and `context7` are also allowlisted for the primary agents via their `mcps:` frontmatter.
+
+Five research-API MCP servers are wired for the `sparring` and `research` subagents only (NOT for `build`/`plan`): `semantic-scholar` (npx `@xbghc/semanticscholar-mcp`, reads `SEMANTIC_SCHOLAR_API_KEY`), `arxiv` (npx `@cyanheads/arxiv-mcp-server`, no key, stdio is the default transport), `github` (official Go binary at `./bin/github-mcp-server`, auto-downloaded into `./bin/` by `install.sh`; invoked as `{env:HOME}/.config/opencode/bin/github-mcp-server stdio --read-only --toolsets repos,issues,pull_requests,users`, reads `GITHUB_PERSONAL_ACCESS_TOKEN`), `dblp` (installed into `./.venv/` by `install.sh` via `uv`, invoked as `{env:HOME}/.config/opencode/.venv/bin/mcp-dblp`, no key), and `sourcegraph` (NOT auto-installed - akbad/sourcegraph-mcp only exposes HTTP/SSE transports, no stdio, so it stays `enabled: false` until manually set up; reads `SRC_ENDPOINT` + `SRC_ACCESS_TOKEN`). The tokens come from the gitignored `.env` via `{env:VAR}` interpolation. The `github` and `dblp` binaries live in the gitignored `./bin/` and `./.venv/` dirs and are referenced via `{env:HOME}` absolute paths in `opencode.jsonc` - they do NOT rely on system PATH. `semantic-scholar` and `arxiv` use `npx -y`, which auto-fetches on first run. See `knowledge/web-search-modules/research-apis.md` for the tool-selection matrix.
 
 ## Editing this repo
 

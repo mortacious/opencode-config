@@ -20,7 +20,7 @@
     "semantic-scholar": {
       "type": "local",
       "command": ["npx", "-y", "@xbghc/semanticscholar-mcp"],
-      "environment": { "SEMANTIC_SCHOLAR_API_KEY": "{env:SEMANTIC_SCHOLAR_API_KEY}" },
+      "environment": { "SEMANTIC_SCHOLAR_API_KEY": "{file:secrets/semantic_scholar_api_key}" },
       "enabled": true
     },
     "arxiv": {
@@ -31,7 +31,7 @@
     "github": {
       "type": "local",
       "command": ["{env:HOME}/.config/opencode/bin/github-mcp-server", "stdio", "--read-only", "--toolsets", "repos,issues,pull_requests,users"],
-      "environment": { "GITHUB_PERSONAL_ACCESS_TOKEN": "{env:GITHUB_PERSONAL_ACCESS_TOKEN}" },
+      "environment": { "GITHUB_PERSONAL_ACCESS_TOKEN": "{file:secrets/github_personal_access_token}" },
       "enabled": true
     },
     "dblp": {

@@ -7,6 +7,7 @@ set -euo pipefail
 CONFIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="$CONFIG_DIR/bin"
 VENV_DIR="$CONFIG_DIR/.venv"
+SECRETS_DIR="$CONFIG_DIR/secrets"
 
 echo "=== opencode config bootstrap ==="
 
@@ -23,6 +24,7 @@ else
 fi
 
 mkdir -p "$BIN_DIR"
+mkdir -p "$SECRETS_DIR"
 
 # --- github-mcp-server (official GitHub MCP; used by sparring + research) ---
 # Self-contained: the binary lives in ./bin/. opencode.jsonc references it via
@@ -126,6 +128,16 @@ else
   # See AGENTS.md and knowledge/web-search-modules/research-apis.md for manual setup.
 fi
 
+# --- research-API secrets ({file:} placeholders) ---
+# opencode.jsonc reads these via {file:secrets/<name>} at config load.
+# A missing file hard-fails opencode startup, so we create empty placeholders.
+# Edit each file to paste in the real key (no quotes, no var= prefix, just the key).
+for secret in semantic_scholar_api_key github_personal_access_token; do
+  if [ ! -f "$SECRETS_DIR/$secret" ]; then
+    touch "$SECRETS_DIR/$secret"
+  fi
+done
+
 # --- node / npm ---
 if ! command -v npm >/dev/null 2>&1; then
   echo "ERROR: npm is not on PATH. Install Node.js first (on Arch: sudo pacman -S nodejs npm)." >&2
@@ -153,18 +165,22 @@ else
   echo "OK: NEURALWATT_API_KEY is set."
 fi
 
-# --- research-API .env ---
-# The research-API MCP servers (semantic-scholar, github) read their keys from the
-# process environment via {env:VAR} interpolation in opencode.jsonc. Source-load .env
-# before launching opencode.
-if [ ! -f "$CONFIG_DIR/.env" ]; then
-  echo "NOTE: $CONFIG_DIR/.env does not exist." >&2
-  echo "  The research-API MCP servers need their keys." >&2
-  echo "  Copy .env.example to .env, fill in values, then source-load it:" >&2
-  echo "    cp $CONFIG_DIR/.env.example $CONFIG_DIR/.env && \${EDITOR:-vi} $CONFIG_DIR/.env" >&2
-  echo "    set -a; source $CONFIG_DIR/.env; set +a" >&2
+# --- research-API secrets ---
+# opencode reads these via {file:secrets/<name>} in opencode.jsonc. No shell
+# sourcing needed - just paste each key into its file.
+empty=""
+for secret in semantic_scholar_api_key github_personal_access_token; do
+  if [ ! -s "$SECRETS_DIR/$secret" ]; then
+    empty="$empty $secret"
+  fi
+done
+if [ -n "$empty" ]; then
+  echo "NOTE: these secret files are empty:$empty" >&2
+  echo "  Paste each key into its file under $SECRETS_DIR/ (just the key, no quotes/var prefix)." >&2
+  echo "  semantic_scholar_api_key - https://www.semanticscholar.org/product/api (optional)" >&2
+  echo "  github_personal_access_token - https://github.com/settings/tokens (recommended)" >&2
 else
-  echo "OK: .env present at $CONFIG_DIR/.env."
+  echo "OK: all research-API secret files are populated."
 fi
 
 echo "=== bootstrap complete ==="

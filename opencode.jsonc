@@ -111,8 +111,8 @@
           "apiKey": "sk-1160d220edc64d189934232ad4ff77b7"
       },
       "models": {
-        "sakamakismile/Qwen3.6-27B-NVFP4": {
-          "name": "Qwen3.6 27B"
+        "unsloth/Qwen3.8-27B-NVFP4": {
+          "name": "Qwen3.8 27B"
         }
       }
     }

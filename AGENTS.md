@@ -40,7 +40,7 @@ When editing agent definitions, preserve this separation: primaries must stay un
 
 ## Models
 
-Primary agents (`build`, `plan`, `sparring`-as-primary-when-invoked-directly, `reviewer`) use `neuralwatt/glm-5.2` with `reasoningEffort: high` (set in opencode.jsonc `provider.neuralwatt.models.glm-5.2.variants`). `sparring` is hardcoded in its own frontmatter to `neuralwatt/glm-5.2` variant `high` temperature `0.4`. `sidekick`, `explore`, and `research` use `opencode-go/deepseek-v4-flash` max (agentic execution roles). `design` uses `opencode/gpt-5.6-luna` max - a vision-capable model, since the design agent handles UI/screenshots. These per-agent overrides live in `opencode.jsonc` `agent.*`, except `sparring` which overrides in its own frontmatter.
+Primary agents (`build`, `plan`, `sparring`-as-primary-when-invoked-directly, `reviewer`) use `neuralwatt/glm-5.2` with `reasoningEffort: high` (set in opencode.jsonc `provider.neuralwatt.models.glm-5.2.variants`). `sparring` sets only `temperature: 0.4` in its own frontmatter; its model and variant come from `opencode.jsonc` `agent.sparring` (so the cheap-local profile overlay can swap them). `sidekick`, `explore`, and `research` use `opencode-go/deepseek-v4-flash` max (agentic execution roles). `design` uses `opencode/gpt-5.6-luna` max - a vision-capable model, since the design agent handles UI/screenshots. These per-agent overrides live in `opencode.jsonc` `agent.*`; `sparring` adds only `temperature: 0.4` in its own frontmatter.
 
 ## MCP servers
 

@@ -15,7 +15,7 @@ This repository is the user's personal OpenCode configuration directory (`~/.con
 - `package.json` - runtime dep `@opencode-ai/plugin` (used for authoring plugins).
 - `profiles/` - profile overlays. Each subdir holds an `opencode.jsonc` that opencode deep-merges on top of the base config when launched with `oc <profile>`. `default/` is identity; `cheap-local/` swaps every agent model to a local Qwen id (placeholder). Travel with the repo via `git pull`.
 - `install.sh` - bootstrap script for multi-machine deployment. Checks codegraph is on PATH, runs `npm install` for local deps, reminds about env-var API keys. Idempotent. See `README.md` for the deploy recipe.
-- `bin/oc` - bash wrapper that launches opencode under a profile overlay by setting `OPENCODE_CONFIG`. Subcommands: `oc [profile]`, `oc profile list|switch|add|install`. Symlinked onto PATH by `install.sh`.
+- `bin/oc` - bash wrapper that launches opencode under a profile overlay by setting `OPENCODE_CONFIG`. Subcommands: `oc [profile]`, `oc profile list|switch|add|install`, `oc completion <shell>`. Symlinked onto PATH by `install.sh`.
 - `README.md` - deployment recipe and secret-handling notes for cloning this config to a new machine.
 
 ## Gitignore policy

@@ -39,6 +39,11 @@
       "command": ["{env:HOME}/.config/opencode/.venv/bin/mcp-dblp"],
       "enabled": true
     },
+    "ddgs": {
+      "type": "local",
+      "command": ["{env:HOME}/.config/opencode/.venv/bin/ddgs", "mcp"],
+      "enabled": true
+    },
     "sourcegraph": {
       "type": "local",
       "command": ["{env:HOME}/.config/opencode/.venv/bin/sourcegraph-mcp"],

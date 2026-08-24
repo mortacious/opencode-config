@@ -2,6 +2,18 @@
 
 > General web search strategy extracted from web-search-agent.md
 
+## Local search (ddgs MCP)
+
+For general web lookups, prefer the `ddgs` MCP server (wired for the `research` and `sparring` agents only - NOT for build/plan, which delegate search). It is quota-free (scrapes DuckDuckGo). Tools:
+
+- `search_text` - general web search. Pass `query` (required) and optional region/max_results.
+- `extract_content` - fetch a URL and return its text. Pass `url` (required) and `fmt` (`markdown` default, or `plain`/`rich`).
+- `search_news`, `search_images`, `search_videos`, `search_books` - typed variants.
+
+Fall back to the `websearch` tool only when ddgs does not surface the needed source. The `build` and `plan` agents do NOT have ddgs in their mcps - they delegate web search to `research`/`explore`.
+
+---
+
 **Trigger scenario**: General information, news, product comparison, best practices
 
 ## Sources

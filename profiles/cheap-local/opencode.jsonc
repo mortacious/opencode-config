@@ -1,0 +1,16 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  // TODO: replace "qwen3.8-27b" with the exact model id you register under
+  // provider["Amenable Thor 1"].models in the base opencode.jsonc.
+  "small_model": "Amenable Thor 1/qwen3.8-27b",
+  "agent": {
+    "build":      { "model": "Amenable Thor 1/qwen3.8-27b" },
+    "plan":       { "model": "Amenable Thor 1/qwen3.8-27b" },
+    "sparring":   { "model": "Amenable Thor 1/qwen3.8-27b" },
+    "reviewer":   { "model": "Amenable Thor 1/qwen3.8-27b" },
+    "sidekick":   { "model": "Amenable Thor 1/qwen3.8-27b" },
+    "explore":    { "model": "Amenable Thor 1/qwen3.8-27b" },
+    "research":   { "model": "Amenable Thor 1/qwen3.8-27b" },
+    "design":     { "model": "Amenable Thor 1/qwen3.8-27b" }
+  }
+}

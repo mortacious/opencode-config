@@ -7,6 +7,14 @@
     "caveman-opencode-plugin@latest"
   ],
   "lsp": true,
+  // Auto-allow the shared knowledge dir so agents loading web-search
+  // strategy modules via read don't prompt for external_directory access.
+  // Scope is narrow: .env (one level up, gitignored) stays blocked.
+  "permission": {
+    "external_directory": {
+      "~/.config/opencode/knowledge/**": "allow"
+    }
+  },
   "mcp": {
     "codegraph": {
       "type": "local",

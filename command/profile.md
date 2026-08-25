@@ -1,6 +1,6 @@
 ---
 description: Show the currently active opencode profile.
-agent: build
+agent: sidekick
 ---
 
 Run `oc profile current` and report only its output to me. Do not add commentary beyond a single line like:

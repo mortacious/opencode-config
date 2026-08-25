@@ -6,8 +6,8 @@ This repository is the user's personal OpenCode configuration directory (`~/.con
 
 - `opencode.jsonc` - main config: providers, per-agent models/variants, plugin list, MCP servers, `subagent_depth: 2`.
 - `agents/*.md` - agent definitions (frontmatter + prompt body). `build.md` is the PRIMARY main agent; its body is the system prompt fed to the main agent every session. `plan.md` is the second primary (plan-mode, read-only). Editing these changes every future session.
-- `skills/<name>/SKILL.md` - skill definitions: `plan-review`, `reflect`, `simplify`.
-- `commands/` - custom command directory (currently empty; drop command files here).
+- `skills/<name>/SKILL.md` - skill definitions: `plan-review`, `reflect`, `simplify`, `create-profile`.
+- `command/` - custom command directory (slash commands); currently holds `quick.md` and `profile.md`. Drop new command files here.
 - `knowledge/web-search-modules/` - search-strategy modules used by the research/web-search flow.
 - `plugins/fusion-audit.js` - read-only observability plugin for the Fusion delegation tree. Logs subagent spawns and edit/task tool calls to OpenCode logs under service `fusion-audit`. It does NOT enforce who-does-what; permissions do that.
 - `dcp.jsonc` - schema reference for the `@tarquinen/opencode-dcp` plugin (the `compress` tool comes from this).
@@ -15,7 +15,7 @@ This repository is the user's personal OpenCode configuration directory (`~/.con
 - `package.json` - runtime dep `@opencode-ai/plugin` (used for authoring plugins).
 - `profiles/` - profile overlays. Each subdir holds an `opencode.jsonc` that opencode deep-merges on top of the base config when launched with `oc <profile>`. `default/` is identity; `cheap-local/` swaps every agent model to a local Qwen id (placeholder). Travel with the repo via `git pull`.
 - `install.sh` - bootstrap script for multi-machine deployment. Checks codegraph is on PATH, runs `npm install` for local deps, reminds about env-var API keys. Idempotent. See `README.md` for the deploy recipe.
-- `bin/oc` - bash wrapper that launches opencode under a profile overlay by setting `OPENCODE_CONFIG`. Subcommands: `oc [profile]`, `oc profile list|switch|add|install`, `oc completion <shell>`. Symlinked onto PATH by `install.sh`.
+- `bin/oc` - bash wrapper that launches opencode under a profile overlay by setting `OPENCODE_CONFIG`. Subcommands: `oc [profile]`, `oc profile list|current|switch|add|delete|rename|install`, `oc completion <shell>`. Symlinked onto PATH by `install.sh`. Related files: `command/profile.md` (slash command) and `skills/create-profile/SKILL.md` (profile-management skill).
 - `README.md` - deployment recipe and secret-handling notes for cloning this config to a new machine.
 
 ## Gitignore policy

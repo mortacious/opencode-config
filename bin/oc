@@ -33,8 +33,11 @@ usage() {
   cat <<'EOF'
 Usage: oc [profile] [args...]        Launch opencode with a profile (default: 'default')
        oc profile list                List profiles
+       oc profile current             Print the effective active profile name
        oc profile switch <name>       Set the default profile
        oc profile add <name> [--clone <src>] [--swap-model "<provider/model>"]
+       oc profile delete <name>       Delete a profile (refuses 'default')
+       oc profile rename <old> <new>  Rename a profile (refuses 'default')
        oc profile install <bundle> <target-dir>
        oc completion <shell>          Emit a shell completion script (fish, bash, zsh)
 EOF
@@ -139,6 +142,64 @@ PROFILE_EOF
   echo "Created profile: $name at $overlay"
 }
 
+profile_current() {
+  # Mirrors resolve_profile precedence, but WITHOUT considering an explicit
+  # positional arg (this subcommand takes none). Prints just the name.
+  if [ -n "${OC_PROFILE:-}" ] && [ -f "$PROFILES_DIR/$OC_PROFILE/opencode.jsonc" ]; then
+    echo "$OC_PROFILE"
+    return 0
+  fi
+  if [ -f "$ACTIVE_FILE" ] && [ -r "$ACTIVE_FILE" ] && [ -s "$ACTIVE_FILE" ]; then
+    local active
+    active="$(cat "$ACTIVE_FILE")"
+    if [ -f "$PROFILES_DIR/$active/opencode.jsonc" ]; then
+      echo "$active"
+      return 0
+    fi
+  fi
+  echo "default"
+}
+
+profile_delete() {
+  local name="$1"
+  if [ "$name" = "default" ]; then
+    echo "Refusing to delete the 'default' profile (it is the fallback)." >&2
+    exit 1
+  fi
+  if [ ! -d "$PROFILES_DIR/$name" ]; then
+    echo "No such profile: $name (run 'oc profile list')" >&2
+    exit 1
+  fi
+  rm -rf "$PROFILES_DIR/$name"
+  # Clear active marker if it pointed at the deleted profile.
+  if [ -f "$ACTIVE_FILE" ] && [ "$(cat "$ACTIVE_FILE")" = "$name" ]; then
+    rm -f "$ACTIVE_FILE"
+  fi
+  echo "Deleted profile: $name"
+}
+
+profile_rename() {
+  local old="$1"
+  local new="$2"
+  if [ "$old" = "default" ]; then
+    echo "Refusing to rename the 'default' profile." >&2
+    exit 1
+  fi
+  if [ ! -d "$PROFILES_DIR/$old" ]; then
+    echo "No such profile: $old (run 'oc profile list')" >&2
+    exit 1
+  fi
+  if [ -e "$PROFILES_DIR/$new" ]; then
+    echo "Profile already exists: $new" >&2
+    exit 1
+  fi
+  mv "$PROFILES_DIR/$old" "$PROFILES_DIR/$new"
+  if [ -f "$ACTIVE_FILE" ] && [ "$(cat "$ACTIVE_FILE")" = "$old" ]; then
+    printf '%s\n' "$new" > "$ACTIVE_FILE"
+  fi
+  echo "Renamed profile: $old -> $new"
+}
+
 profile_install() {
   local bundle="$1"
   local target_dir="$2"
@@ -186,12 +247,29 @@ profile_cmd() {
       fi
       profile_add "$@"
       ;;
+    current)
+      profile_current
+      ;;
+    delete)
+      if [ $# -lt 1 ]; then
+        usage >&2
+        exit 1
+      fi
+      profile_delete "$1"
+      ;;
     install)
       if [ $# -lt 2 ]; then
         usage >&2
         exit 1
       fi
       profile_install "$1" "$2"
+      ;;
+    rename)
+      if [ $# -lt 2 ]; then
+        usage >&2
+        exit 1
+      fi
+      profile_rename "$1" "$2"
       ;;
     --help|-h)
       usage
@@ -252,12 +330,21 @@ complete -c oc -n "__fish_use_subcommand" -l help -s h -d "Show usage"
 
 # 'profile' subcommand: list, switch, add, install.
 complete -c oc -n "__fish_seen_subcommand_from profile" -a "list" -d "List profiles"
+complete -c oc -n "__fish_seen_subcommand_from profile" -a "current" -d "Print active profile"
 complete -c oc -n "__fish_seen_subcommand_from profile" -a "switch" -d "Set default profile"
 complete -c oc -n "__fish_seen_subcommand_from profile" -a "add" -d "Create a new profile"
+complete -c oc -n "__fish_seen_subcommand_from profile" -a "delete" -d "Delete a profile"
+complete -c oc -n "__fish_seen_subcommand_from profile" -a "rename" -d "Rename a profile"
 complete -c oc -n "__fish_seen_subcommand_from profile" -a "install" -d "Install an external bundle"
 
 # 'profile switch <name>': complete existing profile names.
 complete -c oc -n "__fish_seen_subcommand_from switch" -a "(__oc_profiles)" -d "Profile name"
+
+# 'profile delete <name>': complete existing profile names.
+complete -c oc -n "__fish_seen_subcommand_from delete" -a "(__oc_profiles)" -d "Profile to delete"
+
+# 'profile rename <old> <new>': old from existing, new is free-form.
+complete -c oc -n "__fish_seen_subcommand_from rename" -a "(__oc_profiles)" -d "Profile to rename"
 
 # 'profile add <name> [--clone <src>] [--swap-model "<provider/model>"]'.
 # --clone takes an existing profile name; --swap-model takes a free-form model id.

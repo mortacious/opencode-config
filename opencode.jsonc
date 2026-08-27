@@ -64,15 +64,15 @@
   },
   "agent": {
     "build": {
-      "model": "neuralwatt/glm-5.2",
+      "model": "opencode-go/glm-5.3-flash",
       "variant": "high"
     },
     "plan": {
-      "model": "neuralwatt/glm-5.2",
+      "model": "opencode-go/glm-5.3-flash",
       "variant": "high"
     },
     "sparring": {
-      "model": "neuralwatt/glm-5.2",
+      "model": "opencode-go/glm-5.3-flash",
       "variant": "high"
     },
     "reviewer": {

@@ -1,0 +1,429 @@
+#!/usr/bin/env bash
+# oc - opencode profile launcher.
+# Launches opencode under a profile overlay (profiles/<name>/opencode.jsonc)
+# by setting OPENCODE_CONFIG (opencode deep-merges the overlay on top of the
+# base config). Also manages profiles and installs external project-local
+# bundles (e.g. agentic-vault).
+set -euo pipefail
+
+# Resolve paths. Works in the dev repo (bin/oc next to profiles/) and when
+# deployed to ~/.config/opencode/bin/oc (symlinked onto PATH from install.sh).
+SCRIPT_PATH="$(readlink -f "$0")"
+BIN_DIR="$(dirname "$SCRIPT_PATH")"
+CONFIG_DIR="$(dirname "$BIN_DIR")"
+PROFILES_DIR="$CONFIG_DIR/profiles"
+ACTIVE_FILE="$CONFIG_DIR/.active-profile"
+
+# Bundle lookup table (extend with new bundles here).
+BUNDLE_URL=""
+resolve_bundle() {
+  local bundle="${1:-}"
+  case "$bundle" in
+    agentic-vault)
+      BUNDLE_URL="https://github.com/mortacious/agentic-vault.git"
+      ;;
+    *)
+      echo "Unknown bundle: $bundle" >&2
+      exit 1
+      ;;
+  esac
+}
+
+usage() {
+  cat <<'EOF'
+Usage: oc [profile] [args...]        Launch opencode with a profile (default: 'default')
+       oc profile list                List profiles
+       oc profile current             Print the effective active profile name
+       oc profile switch <name>       Set the default profile
+       oc profile add <name> [--clone <src>] [--swap-model "<provider/model>"]
+       oc profile delete <name>       Delete a profile (refuses 'default')
+       oc profile rename <old> <new>  Rename a profile (refuses 'default')
+       oc profile install <bundle> <target-dir>
+       oc completion <shell>          Emit a shell completion script (fish, bash, zsh)
+EOF
+}
+
+profile_list() {
+  if [ ! -d "$PROFILES_DIR" ]; then
+    echo "No profiles directory at $PROFILES_DIR"
+    exit 0
+  fi
+  # Effective active profile: .active-profile contents, else 'default'.
+  local active="default"
+  if [ -f "$ACTIVE_FILE" ] && [ -r "$ACTIVE_FILE" ] && [ -s "$ACTIVE_FILE" ]; then
+    active="$(cat "$ACTIVE_FILE")"
+  fi
+  local overlay name
+  for overlay in "$PROFILES_DIR"/*/opencode.jsonc; do
+    if [ -f "$overlay" ]; then
+      name="$(basename "$(dirname "$overlay")")"
+      if [ "$name" = "$active" ]; then
+        echo "* $name"
+      else
+        echo "  $name"
+      fi
+    fi
+  done
+}
+
+profile_switch() {
+  local name="$1"
+  if [ ! -f "$PROFILES_DIR/$name/opencode.jsonc" ]; then
+    echo "No such profile: $name (run 'oc profile list')" >&2
+    exit 1
+  fi
+  printf '%s\n' "$name" > "$ACTIVE_FILE"
+  echo "Active profile: $name"
+}
+
+profile_add() {
+  local name="$1"
+  shift
+  local src=""
+  local model=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --clone)
+        if [ $# -lt 2 ]; then
+          usage >&2
+          exit 1
+        fi
+        src="$2"
+        shift 2
+        ;;
+      --swap-model)
+        if [ $# -lt 2 ]; then
+          usage >&2
+          exit 1
+        fi
+        model="$2"
+        shift 2
+        ;;
+      *)
+        usage >&2
+        exit 1
+        ;;
+    esac
+  done
+
+  if [ -e "$PROFILES_DIR/$name" ]; then
+    echo "Profile already exists: $name" >&2
+    exit 1
+  fi
+  if [ -n "$model" ] && ! command -v jq >/dev/null 2>&1; then
+    echo "jq is required for --swap-model" >&2
+    exit 1
+  fi
+
+  mkdir -p "$PROFILES_DIR/$name"
+  local overlay="$PROFILES_DIR/$name/opencode.jsonc"
+  if [ -n "$src" ] && [ -f "$PROFILES_DIR/$src/opencode.jsonc" ]; then
+    cp "$PROFILES_DIR/$src/opencode.jsonc" "$overlay"
+  else
+    cat > "$overlay" <<'PROFILE_EOF'
+{
+  "$schema": "https://opencode.ai/config.json"
+}
+PROFILE_EOF
+  fi
+
+  if [ -n "$model" ]; then
+    # Rewrite: every agent.*.model + small_model -> new id; strip agent variants.
+    # jq parses strict JSON only, so drop full-line // comments (jsonc) first.
+    sed -E 's|^[[:space:]]*//.*$||' "$overlay" > "$overlay.tmp"
+    jq --arg model "$model" '
+      (if .agent then .agent |= with_entries(.value |= (del(.variant) | .model = $model)) else . end)
+      | .small_model = $model
+    ' "$overlay.tmp" > "$overlay"
+    rm -f "$overlay.tmp"
+  fi
+
+  # Both the heredoc seed and jq output end with a trailing newline.
+  echo "Created profile: $name at $overlay"
+}
+
+profile_current() {
+  # Mirrors resolve_profile precedence, but WITHOUT considering an explicit
+  # positional arg (this subcommand takes none). Prints just the name.
+  if [ -n "${OC_PROFILE:-}" ] && [ -f "$PROFILES_DIR/$OC_PROFILE/opencode.jsonc" ]; then
+    echo "$OC_PROFILE"
+    return 0
+  fi
+  if [ -f "$ACTIVE_FILE" ] && [ -r "$ACTIVE_FILE" ] && [ -s "$ACTIVE_FILE" ]; then
+    local active
+    active="$(cat "$ACTIVE_FILE")"
+    if [ -f "$PROFILES_DIR/$active/opencode.jsonc" ]; then
+      echo "$active"
+      return 0
+    fi
+  fi
+  echo "default"
+}
+
+profile_delete() {
+  local name="$1"
+  if [ "$name" = "default" ]; then
+    echo "Refusing to delete the 'default' profile (it is the fallback)." >&2
+    exit 1
+  fi
+  if [ ! -d "$PROFILES_DIR/$name" ]; then
+    echo "No such profile: $name (run 'oc profile list')" >&2
+    exit 1
+  fi
+  rm -rf "$PROFILES_DIR/$name"
+  # Clear active marker if it pointed at the deleted profile.
+  if [ -f "$ACTIVE_FILE" ] && [ "$(cat "$ACTIVE_FILE")" = "$name" ]; then
+    rm -f "$ACTIVE_FILE"
+  fi
+  echo "Deleted profile: $name"
+}
+
+profile_rename() {
+  local old="$1"
+  local new="$2"
+  if [ "$old" = "default" ]; then
+    echo "Refusing to rename the 'default' profile." >&2
+    exit 1
+  fi
+  if [ ! -d "$PROFILES_DIR/$old" ]; then
+    echo "No such profile: $old (run 'oc profile list')" >&2
+    exit 1
+  fi
+  if [ -e "$PROFILES_DIR/$new" ]; then
+    echo "Profile already exists: $new" >&2
+    exit 1
+  fi
+  mv "$PROFILES_DIR/$old" "$PROFILES_DIR/$new"
+  if [ -f "$ACTIVE_FILE" ] && [ "$(cat "$ACTIVE_FILE")" = "$old" ]; then
+    printf '%s\n' "$new" > "$ACTIVE_FILE"
+  fi
+  echo "Renamed profile: $old -> $new"
+}
+
+profile_install() {
+  local bundle="$1"
+  local target_dir="$2"
+  BUNDLE_URL=""
+  resolve_bundle "$bundle"
+  if [ ! -d "$target_dir" ]; then
+    echo "Target dir does not exist: $target_dir" >&2
+    exit 1
+  fi
+  local dest="$target_dir/.agentic-vault"
+  if [ -d "$dest" ]; then
+    echo "Note: $dest already exists; skipping clone."
+  else
+    git clone "$BUNDLE_URL" "$dest"
+  fi
+  # Project-local install mirrors the bundle's own setup model - the global
+  # profile system does NOT carry the bundle's agents/skills/knowledge; only
+  # this launcher copies them per-target.
+  bash "$dest/setup.sh"
+  echo "Installed $bundle into $target_dir (project-local .opencode/)."
+}
+
+profile_cmd() {
+  if [ $# -lt 1 ]; then
+    usage >&2
+    exit 1
+  fi
+  local sub="$1"
+  shift
+  case "$sub" in
+    list)
+      profile_list
+      ;;
+    switch)
+      if [ $# -lt 1 ]; then
+        usage >&2
+        exit 1
+      fi
+      profile_switch "$1"
+      ;;
+    add)
+      if [ $# -lt 1 ]; then
+        usage >&2
+        exit 1
+      fi
+      profile_add "$@"
+      ;;
+    current)
+      profile_current
+      ;;
+    delete)
+      if [ $# -lt 1 ]; then
+        usage >&2
+        exit 1
+      fi
+      profile_delete "$1"
+      ;;
+    install)
+      if [ $# -lt 2 ]; then
+        usage >&2
+        exit 1
+      fi
+      profile_install "$1" "$2"
+      ;;
+    rename)
+      if [ $# -lt 2 ]; then
+        usage >&2
+        exit 1
+      fi
+      profile_rename "$1" "$2"
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      usage >&2
+      exit 1
+      ;;
+  esac
+}
+
+completion_cmd() {
+  local shell="${1:-}"
+  if [ -z "$shell" ]; then
+    echo "Usage: oc completion <shell>    (supported: fish, bash, zsh)" >&2
+    exit 1
+  fi
+  case "$shell" in
+    fish)
+      # Emit a fish completion script for the oc wrapper's own subcommands.
+      # Fish autoloads this via its embedded 'completions/oc.fish' default
+      # (= 'oc completion fish | source'), so a valid script here replaces
+      # the broken bash that opencode would emit if 'completion' fell through
+      # to the catch-all and got forwarded.
+      cat <<'FISH_EOF'
+# oc completion - generated by 'oc completion fish'.
+# Completions for the oc profile launcher (NOT OpenShift oc).
+
+function __oc_profiles
+    # Resolve the real bin/oc path even if invoked via symlink, then walk up
+    # to the config dir to find profiles/.
+    set -l oc_path (command -v oc 2>/dev/null)
+    if test -z "$oc_path"
+        return
+    end
+    set -l real_path (readlink -f $oc_path)
+    set -l bin_dir (dirname $real_path)
+    set -l config_dir (dirname $bin_dir)
+    set -l profiles_dir "$config_dir/profiles"
+    if test -d "$profiles_dir"
+        for f in $profiles_dir/*/opencode.jsonc
+            if test -f $f
+                basename (dirname $f)
+            end
+        end
+    end
+end
+
+# Suppress filename completion for positional args by default.
+complete -c oc -f
+
+# Top-level first arg: 'profile' subcommand, a profile name (default action),
+# or --help/-h.
+complete -c oc -n "__fish_use_subcommand" -a "profile" -d "Manage profiles"
+complete -c oc -n "__fish_use_subcommand" -a "(__oc_profiles)" -d "Launch opencode under this profile"
+complete -c oc -n "__fish_use_subcommand" -l help -s h -d "Show usage"
+
+# 'profile' subcommand: list, switch, add, install.
+complete -c oc -n "__fish_seen_subcommand_from profile" -a "list" -d "List profiles"
+complete -c oc -n "__fish_seen_subcommand_from profile" -a "current" -d "Print active profile"
+complete -c oc -n "__fish_seen_subcommand_from profile" -a "switch" -d "Set default profile"
+complete -c oc -n "__fish_seen_subcommand_from profile" -a "add" -d "Create a new profile"
+complete -c oc -n "__fish_seen_subcommand_from profile" -a "delete" -d "Delete a profile"
+complete -c oc -n "__fish_seen_subcommand_from profile" -a "rename" -d "Rename a profile"
+complete -c oc -n "__fish_seen_subcommand_from profile" -a "install" -d "Install an external bundle"
+
+# 'profile switch <name>': complete existing profile names.
+complete -c oc -n "__fish_seen_subcommand_from switch" -a "(__oc_profiles)" -d "Profile name"
+
+# 'profile delete <name>': complete existing profile names.
+complete -c oc -n "__fish_seen_subcommand_from delete" -a "(__oc_profiles)" -d "Profile to delete"
+
+# 'profile rename <old> <new>': old from existing, new is free-form.
+complete -c oc -n "__fish_seen_subcommand_from rename" -a "(__oc_profiles)" -d "Profile to rename"
+
+# 'profile add <name> [--clone <src>] [--swap-model "<provider/model>"]'.
+# --clone takes an existing profile name; --swap-model takes a free-form model id.
+complete -c oc -n "__fish_seen_subcommand_from add" -l clone -d "Fork from existing profile" -r -a "(__oc_profiles)"
+complete -c oc -n "__fish_seen_subcommand_from add" -l swap-model -d "Rewrite every agent model + small_model to this id" -r
+
+# 'profile install <bundle> <target-dir>': complete known bundle names, then a directory.
+complete -c oc -n "__fish_seen_subcommand_from install" -a "agentic-vault" -d "Install bundle"
+FISH_EOF
+      ;;
+    bash|zsh)
+      # opencode's own 'completion' subcommand already emits a bash/yargs script
+      # that hardcodes opencode's subcommand tree - it does not describe oc's
+      # surface and would be misleading. Emit a minimal stub rather than forward.
+      echo "# oc completion for $shell: not implemented (only fish is supported)."
+      echo "# Use 'oc --help' to see available subcommands."
+      exit 0
+      ;;
+    *)
+      echo "oc completion: unsupported shell '$shell' (supported: fish, bash, zsh)" >&2
+      exit 1
+      ;;
+  esac
+}
+
+resolve_profile() {
+  local name="${1:-}"
+  # 1. Explicit first arg naming a profile.
+  if [ -n "$name" ] && [ -f "$PROFILES_DIR/$name/opencode.jsonc" ]; then
+    echo "$name"
+    return 0
+  fi
+  # 2. OC_PROFILE env var.
+  if [ -n "${OC_PROFILE:-}" ] && [ -f "$PROFILES_DIR/$OC_PROFILE/opencode.jsonc" ]; then
+    echo "$OC_PROFILE"
+    return 0
+  fi
+  # 3. .active-profile file.
+  if [ -f "$ACTIVE_FILE" ] && [ -r "$ACTIVE_FILE" ] && [ -s "$ACTIVE_FILE" ]; then
+    local active
+    active="$(cat "$ACTIVE_FILE")"
+    if [ -f "$PROFILES_DIR/$active/opencode.jsonc" ]; then
+      echo "$active"
+      return 0
+    fi
+  fi
+  # 4. Fallback.
+  echo "default"
+}
+
+main() {
+  case "${1:-}" in
+    profile)
+      shift
+      profile_cmd "$@"
+      ;;
+    completion)
+      shift
+      completion_cmd "$@"
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      local profile
+      profile="$(resolve_profile "${1:-}")"
+      if [ -n "${1:-}" ] && [ -f "$PROFILES_DIR/$1/opencode.jsonc" ]; then
+        shift
+      fi
+      if ! command -v opencode >/dev/null 2>&1; then
+        echo "opencode not found on PATH" >&2
+        exit 1
+      fi
+      export OPENCODE_CONFIG="$PROFILES_DIR/$profile/opencode.jsonc"
+      echo "Using profile: $profile" >&2
+      exec opencode "$@"
+      ;;
+  esac
+}
+
+main "$@"

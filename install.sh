@@ -121,6 +121,19 @@ else
   else
     echo "OK: mcp-dblp already installed in $VENV_DIR."
   fi
+  # ddgs: metasearch MCP (search_text, search_images, search_news, search_videos,
+  # search_books, extract_content). No key required (scrapes DuckDuckGo).
+  # Used by sparring + research for general web lookups (Exa-quota-free).
+  if ! "$VENV_DIR/bin/ddgs" --help >/dev/null 2>&1; then
+    echo "Installing ddgs[mcp] into $VENV_DIR ..."
+    if ! uv pip install --python "$VENV_DIR/bin/python" "ddgs[mcp]" >/dev/null 2>&1; then
+      echo "WARNING: failed to install ddgs[mcp]. The ddgs MCP server will not start." >&2
+    else
+      echo "OK: ddgs[mcp] installed in $VENV_DIR."
+    fi
+  else
+    echo "OK: ddgs[mcp] already installed in $VENV_DIR."
+  fi
   # NOTE: sourcegraph-mcp is NOT auto-installed. It is disabled in opencode.jsonc
   # because akbad/sourcegraph-mcp only supports HTTP/SSE transports (no stdio).
   # See AGENTS.md and knowledge/web-search-modules/research-apis.md for manual setup.
@@ -165,6 +178,41 @@ if [ ! -f "$CONFIG_DIR/.env" ]; then
   echo "    set -a; source $CONFIG_DIR/.env; set +a" >&2
 else
   echo "OK: .env present at $CONFIG_DIR/.env."
+fi
+
+# --- oc wrapper (profile launcher) ---
+# bin/oc lives in this repo; symlink it onto PATH so 'oc' works from anywhere.
+# Profiles live in ./profiles/ alongside opencode.jsonc and travel via git pull.
+OC_SRC="$CONFIG_DIR/bin/oc"
+if [ ! -f "$OC_SRC" ]; then
+  echo "WARNING: bin/oc missing at $OC_SRC - profile system unavailable." >&2
+else
+  chmod +x "$OC_SRC"
+  # Prefer ~/.local/bin (common user PATH); fall back to /usr/local/bin if writable.
+  for candidate in "$HOME/.local/bin" "/usr/local/bin"; do
+    if [ -d "$candidate" ] && [ -w "$candidate" ]; then
+      ln -sf "$OC_SRC" "$candidate/oc"
+      echo "OK: 'oc' wrapper symlinked into $candidate."
+      break
+    fi
+  done
+  if [ ! -e "$HOME/.local/bin/oc" ] && [ ! -e "/usr/local/bin/oc" ]; then
+    echo "NOTE: no writable PATH dir found for 'oc' symlink." >&2
+    echo "  Create ~/.local/bin (mkdir -p ~/.local/bin) and add it to PATH, then re-run." >&2
+    echo "  Or invoke directly: $OC_SRC" >&2
+  fi
+fi
+
+# --- profiles dir ---
+# Default profile overlay must exist; create it if missing (never overwrite).
+mkdir -p "$CONFIG_DIR/profiles/default"
+if [ ! -f "$CONFIG_DIR/profiles/default/opencode.jsonc" ]; then
+  cat > "$CONFIG_DIR/profiles/default/opencode.jsonc" <<'PROFILE_EOF'
+{
+  "$schema": "https://opencode.ai/config.json"
+}
+PROFILE_EOF
+  echo "OK: created default profile overlay."
 fi
 
 echo "=== bootstrap complete ==="

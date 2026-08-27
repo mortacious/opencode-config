@@ -111,28 +111,26 @@ else
     fi
   fi
   # mcp-dblp: used by sparring + research. Entry point name verified from PyPI.
-  if ! "$VENV_DIR/bin/mcp-dblp" --help >/dev/null 2>&1; then
-    echo "Installing mcp-dblp into $VENV_DIR ..."
-    if ! uv pip install --python "$VENV_DIR/bin/python" mcp-dblp >/dev/null 2>&1; then
-      echo "WARNING: failed to install mcp-dblp. The dblp MCP server will not start." >&2
-    else
-      echo "OK: mcp-dblp installed in $VENV_DIR."
-    fi
+  # Always (re)install: uv pip install is idempotent and exits 0 when already
+  # satisfied. Avoids probing the entry point (--help starts the MCP stdio
+  # server and blocks on stdin) and avoids the ddgs-style extras gap where
+  # `uv pip show ddgs` succeeds even when the [mcp] extras are missing.
+  echo "Installing mcp-dblp into $VENV_DIR ..."
+  if ! uv pip install --python "$VENV_DIR/bin/python" mcp-dblp >/dev/null 2>&1; then
+    echo "WARNING: failed to install mcp-dblp. The dblp MCP server will not start." >&2
   else
-    echo "OK: mcp-dblp already installed in $VENV_DIR."
+    echo "OK: mcp-dblp installed in $VENV_DIR."
   fi
   # ddgs: metasearch MCP (search_text, search_images, search_news, search_videos,
   # search_books, extract_content). No key required (scrapes DuckDuckGo).
   # Used by sparring + research for general web lookups (Exa-quota-free).
-  if ! "$VENV_DIR/bin/ddgs" --help >/dev/null 2>&1; then
-    echo "Installing ddgs[mcp] into $VENV_DIR ..."
-    if ! uv pip install --python "$VENV_DIR/bin/python" "ddgs[mcp]" >/dev/null 2>&1; then
-      echo "WARNING: failed to install ddgs[mcp]. The ddgs MCP server will not start." >&2
-    else
-      echo "OK: ddgs[mcp] installed in $VENV_DIR."
-    fi
+  # Always (re)install ddgs[mcp]: ensures the [mcp] extras are present even if
+  # bare ddgs was previously installed without them. uv pip install is idempotent.
+  echo "Installing ddgs[mcp] into $VENV_DIR ..."
+  if ! uv pip install --python "$VENV_DIR/bin/python" "ddgs[mcp]" >/dev/null 2>&1; then
+    echo "WARNING: failed to install ddgs[mcp]. The ddgs MCP server will not start." >&2
   else
-    echo "OK: ddgs[mcp] already installed in $VENV_DIR."
+    echo "OK: ddgs[mcp] installed in $VENV_DIR."
   fi
   # NOTE: sourcegraph-mcp is NOT auto-installed. It is disabled in opencode.jsonc
   # because akbad/sourcegraph-mcp only supports HTTP/SSE transports (no stdio).

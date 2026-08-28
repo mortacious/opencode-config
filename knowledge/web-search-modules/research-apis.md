@@ -59,6 +59,7 @@ To go from a paper to its reference implementation:
 
 ## Fallbacks and cautions
 
+- The `ddgs` MCP (`search_text`, `extract_content`) is the preferred quota-free general-web fallback - use it first for sources the research-API MCP tools do not cover. `websearch`/`webfetch` remain the final fallback when ddgs does not surface the source.
 - Google Scholar has NO real API (scraping violates ToS - fragile). Use `websearch`/`webfetch` as a last resort, not a primary path.
 - Prefer Semantic Scholar `citationCount` over any web claim for citation metrics.
 - `websearch`/`webfetch` remain the fallback for sources the MCP tools do not cover: Google Scholar, Papers With Code pages, blog posts, production post-mortems, vendor docs.

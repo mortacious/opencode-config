@@ -1,6 +1,9 @@
 node_modules
 bun.lock
 .env
-secrets/
-bin/
+bin/*
+!bin/oc
 .venv/
+
+# oc wrapper active-profile (machine-local)
+.active-profile

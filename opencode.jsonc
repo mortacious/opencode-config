@@ -7,6 +7,14 @@
     "caveman-opencode-plugin@latest"
   ],
   "lsp": true,
+  // Auto-allow the shared knowledge dir so agents loading web-search
+  // strategy modules via read don't prompt for external_directory access.
+  // Scope is narrow: .env (one level up, gitignored) stays blocked.
+  "permission": {
+    "external_directory": {
+      "~/.config/opencode/knowledge/**": "allow"
+    }
+  },
   "mcp": {
     "codegraph": {
       "type": "local",
@@ -39,6 +47,11 @@
       "command": ["{env:HOME}/.config/opencode/.venv/bin/mcp-dblp"],
       "enabled": true
     },
+    "ddgs": {
+      "type": "local",
+      "command": ["{env:HOME}/.config/opencode/.venv/bin/ddgs", "mcp"],
+      "enabled": true
+    },
     "sourcegraph": {
       "type": "local",
       "command": ["{env:HOME}/.config/opencode/.venv/bin/sourcegraph-mcp"],
@@ -51,15 +64,15 @@
   },
   "agent": {
     "build": {
-      "model": "neuralwatt/glm-5.2",
+      "model": "opencode-go/glm-5.3-flash",
       "variant": "high"
     },
     "plan": {
-      "model": "neuralwatt/glm-5.2",
+      "model": "opencode-go/glm-5.3-flash",
       "variant": "high"
     },
     "sparring": {
-      "model": "neuralwatt/glm-5.2",
+      "model": "opencode-go/glm-5.3-flash",
       "variant": "high"
     },
     "reviewer": {
@@ -106,8 +119,8 @@
           "apiKey": "sk-1160d220edc64d189934232ad4ff77b7"
       },
       "models": {
-        "sakamakismile/Qwen3.6-27B-NVFP4": {
-          "name": "Qwen3.6 27B"
+        "unsloth/Qwen3.8-27B-NVFP4": {
+          "name": "Qwen3.8 27B"
         }
       }
     }

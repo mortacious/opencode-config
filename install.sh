@@ -113,15 +113,26 @@ else
     fi
   fi
   # mcp-dblp: used by sparring + research. Entry point name verified from PyPI.
-  if ! "$VENV_DIR/bin/mcp-dblp" --help >/dev/null 2>&1; then
-    echo "Installing mcp-dblp into $VENV_DIR ..."
-    if ! uv pip install --python "$VENV_DIR/bin/python" mcp-dblp >/dev/null 2>&1; then
-      echo "WARNING: failed to install mcp-dblp. The dblp MCP server will not start." >&2
-    else
-      echo "OK: mcp-dblp installed in $VENV_DIR."
-    fi
+  # Always (re)install: uv pip install is idempotent and exits 0 when already
+  # satisfied. Avoids probing the entry point (--help starts the MCP stdio
+  # server and blocks on stdin) and avoids the ddgs-style extras gap where
+  # `uv pip show ddgs` succeeds even when the [mcp] extras are missing.
+  echo "Installing mcp-dblp into $VENV_DIR ..."
+  if ! uv pip install --python "$VENV_DIR/bin/python" mcp-dblp >/dev/null 2>&1; then
+    echo "WARNING: failed to install mcp-dblp. The dblp MCP server will not start." >&2
   else
-    echo "OK: mcp-dblp already installed in $VENV_DIR."
+    echo "OK: mcp-dblp installed in $VENV_DIR."
+  fi
+  # ddgs: metasearch MCP (search_text, search_images, search_news, search_videos,
+  # search_books, extract_content). No key required (scrapes DuckDuckGo).
+  # Used by sparring + research for general web lookups (Exa-quota-free).
+  # Always (re)install ddgs[mcp]: ensures the [mcp] extras are present even if
+  # bare ddgs was previously installed without them. uv pip install is idempotent.
+  echo "Installing ddgs[mcp] into $VENV_DIR ..."
+  if ! uv pip install --python "$VENV_DIR/bin/python" "ddgs[mcp]" >/dev/null 2>&1; then
+    echo "WARNING: failed to install ddgs[mcp]. The ddgs MCP server will not start." >&2
+  else
+    echo "OK: ddgs[mcp] installed in $VENV_DIR."
   fi
   # NOTE: sourcegraph-mcp is NOT auto-installed. It is disabled in opencode.jsonc
   # because akbad/sourcegraph-mcp only supports HTTP/SSE transports (no stdio).
@@ -181,6 +192,41 @@ if [ -n "$empty" ]; then
   echo "  github_personal_access_token - https://github.com/settings/tokens (recommended)" >&2
 else
   echo "OK: all research-API secret files are populated."
+fi
+
+# --- oc wrapper (profile launcher) ---
+# bin/oc lives in this repo; symlink it onto PATH so 'oc' works from anywhere.
+# Profiles live in ./profiles/ alongside opencode.jsonc and travel via git pull.
+OC_SRC="$CONFIG_DIR/bin/oc"
+if [ ! -f "$OC_SRC" ]; then
+  echo "WARNING: bin/oc missing at $OC_SRC - profile system unavailable." >&2
+else
+  chmod +x "$OC_SRC"
+  # Prefer ~/.local/bin (common user PATH); fall back to /usr/local/bin if writable.
+  for candidate in "$HOME/.local/bin" "/usr/local/bin"; do
+    if [ -d "$candidate" ] && [ -w "$candidate" ]; then
+      ln -sf "$OC_SRC" "$candidate/oc"
+      echo "OK: 'oc' wrapper symlinked into $candidate."
+      break
+    fi
+  done
+  if [ ! -e "$HOME/.local/bin/oc" ] && [ ! -e "/usr/local/bin/oc" ]; then
+    echo "NOTE: no writable PATH dir found for 'oc' symlink." >&2
+    echo "  Create ~/.local/bin (mkdir -p ~/.local/bin) and add it to PATH, then re-run." >&2
+    echo "  Or invoke directly: $OC_SRC" >&2
+  fi
+fi
+
+# --- profiles dir ---
+# Default profile overlay must exist; create it if missing (never overwrite).
+mkdir -p "$CONFIG_DIR/profiles/default"
+if [ ! -f "$CONFIG_DIR/profiles/default/opencode.jsonc" ]; then
+  cat > "$CONFIG_DIR/profiles/default/opencode.jsonc" <<'PROFILE_EOF'
+{
+  "$schema": "https://opencode.ai/config.json"
+}
+PROFILE_EOF
+  echo "OK: created default profile overlay."
 fi
 
 echo "=== bootstrap complete ==="

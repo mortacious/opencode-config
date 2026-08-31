@@ -35,6 +35,7 @@ Subagents (`mode: subagent`):
 - `research` - read-only research. `webfetch`/`websearch` plus the research-API MCP servers (`semantic-scholar`, `arxiv`, `github`, `dblp`, `sourcegraph`) and `context7`; may delegate onward to `explore`.
 - `explore` - read-only. `webfetch`/`websearch` allowed.
 - `sparring` - scientific critic. Read-only (no `edit`/`bash`/`task`): `webfetch`, `websearch`, `date`, plus the research-API MCP servers (`semantic-scholar`, `arxiv`, `github`, `dblp`, `sourcegraph`) and `context7` for library-docs verification.
+- `vision` - read-only vision-capable executor that runs a visual-inspection spec provided by the delegating agent (edit/bash/task denied).
 
 When editing agent definitions, preserve this separation: primaries must stay unable to edit; execution must stay unable to commit.
 

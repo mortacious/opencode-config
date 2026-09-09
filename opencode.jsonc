@@ -49,7 +49,7 @@
     },
     "ddgs": {
       "type": "local",
-      "command": ["{env:HOME}/.config/opencode/.venv/bin/ddgs", "mcp"],
+      "command": ["{env:HOME}/.config/opencode/.venv-ddgs/bin/ddgs", "mcp"],
       "enabled": true
     },
     "sourcegraph": {
@@ -125,7 +125,15 @@
       "models": {
         "unsloth/Qwen3.8-27B-NVFP4": {
           "name": "Qwen3.8 27B"
-        }
+        },
+	"qwen38-flash-next": {
+	  "name": "qwen38-flash-next",
+	  "variants": {
+	    "xhigh": { "reasoningEffort": "xhigh" },
+	    "medium": { "reasoningEffort": "medium" },
+	    "low": { "reasoningEffort": "low" }
+	  }
+	}
       }
     }
   }

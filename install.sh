@@ -7,6 +7,8 @@ set -euo pipefail
 CONFIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="$CONFIG_DIR/bin"
 VENV_DIR="$CONFIG_DIR/.venv"
+VENV_DDGS="$CONFIG_DIR/.venv-ddgs"
+SECRETS_DIR="$CONFIG_DIR/secrets"
 
 echo "=== opencode config bootstrap ==="
 
@@ -23,6 +25,7 @@ else
 fi
 
 mkdir -p "$BIN_DIR"
+mkdir -p "$SECRETS_DIR"
 
 # --- github-mcp-server (official GitHub MCP; used by sparring + research) ---
 # Self-contained: the binary lives in ./bin/. opencode.jsonc references it via
@@ -124,18 +127,39 @@ else
   # ddgs: metasearch MCP (search_text, search_images, search_news, search_videos,
   # search_books, extract_content). No key required (scrapes DuckDuckGo).
   # Used by sparring + research for general web lookups (Exa-quota-free).
+  # ddgs gets its own venv (.venv-ddgs): mcp-dblp pins mcp>=1.20,<2, while
+  # ddgs[mcp] requires mcp>=2.0 - the two cannot share one venv. opencode.jsonc
+  # references it via {env:HOME}/.config/opencode/.venv-ddgs/bin/ddgs.
   # Always (re)install ddgs[mcp]: ensures the [mcp] extras are present even if
   # bare ddgs was previously installed without them. uv pip install is idempotent.
-  echo "Installing ddgs[mcp] into $VENV_DIR ..."
-  if ! uv pip install --python "$VENV_DIR/bin/python" "ddgs[mcp]" >/dev/null 2>&1; then
-    echo "WARNING: failed to install ddgs[mcp]. The ddgs MCP server will not start." >&2
-  else
-    echo "OK: ddgs[mcp] installed in $VENV_DIR."
+  if [ ! -d "$VENV_DDGS" ]; then
+    echo "Creating Python venv at $VENV_DDGS ..."
+    if ! uv venv "$VENV_DDGS" >/dev/null 2>&1; then
+      echo "WARNING: failed to create venv at $VENV_DDGS. The ddgs MCP server will not start." >&2
+    fi
+  fi
+  if [ -d "$VENV_DDGS" ]; then
+    echo "Installing ddgs[mcp] into $VENV_DDGS ..."
+    if ! uv pip install --python "$VENV_DDGS/bin/python" "ddgs[mcp]" >/dev/null 2>&1; then
+      echo "WARNING: failed to install ddgs[mcp]. The ddgs MCP server will not start." >&2
+    else
+      echo "OK: ddgs[mcp] installed in $VENV_DDGS."
+    fi
   fi
   # NOTE: sourcegraph-mcp is NOT auto-installed. It is disabled in opencode.jsonc
   # because akbad/sourcegraph-mcp only supports HTTP/SSE transports (no stdio).
   # See AGENTS.md and knowledge/web-search-modules/research-apis.md for manual setup.
 fi
+
+# --- research-API secrets ({file:} placeholders) ---
+# opencode.jsonc reads these via {file:secrets/<name>} at config load.
+# A missing file hard-fails opencode startup, so we create empty placeholders.
+# Edit each file to paste in the real key (no quotes, no var= prefix, just the key).
+for secret in semantic_scholar_api_key github_personal_access_token; do
+  if [ ! -f "$SECRETS_DIR/$secret" ]; then
+    touch "$SECRETS_DIR/$secret"
+  fi
+done
 
 # --- node / npm ---
 if ! command -v npm >/dev/null 2>&1; then
@@ -164,18 +188,22 @@ else
   echo "OK: NEURALWATT_API_KEY is set."
 fi
 
-# --- research-API .env ---
-# The research-API MCP servers (semantic-scholar, github) read their keys from the
-# process environment via {env:VAR} interpolation in opencode.jsonc. Source-load .env
-# before launching opencode.
-if [ ! -f "$CONFIG_DIR/.env" ]; then
-  echo "NOTE: $CONFIG_DIR/.env does not exist." >&2
-  echo "  The research-API MCP servers need their keys." >&2
-  echo "  Copy .env.example to .env, fill in values, then source-load it:" >&2
-  echo "    cp $CONFIG_DIR/.env.example $CONFIG_DIR/.env && \${EDITOR:-vi} $CONFIG_DIR/.env" >&2
-  echo "    set -a; source $CONFIG_DIR/.env; set +a" >&2
+# --- research-API secrets ---
+# opencode reads these via {file:secrets/<name>} in opencode.jsonc. No shell
+# sourcing needed - just paste each key into its file.
+empty=""
+for secret in semantic_scholar_api_key github_personal_access_token; do
+  if [ ! -s "$SECRETS_DIR/$secret" ]; then
+    empty="$empty $secret"
+  fi
+done
+if [ -n "$empty" ]; then
+  echo "NOTE: these secret files are empty:$empty" >&2
+  echo "  Paste each key into its file under $SECRETS_DIR/ (just the key, no quotes/var prefix)." >&2
+  echo "  semantic_scholar_api_key - https://www.semanticscholar.org/product/api (optional)" >&2
+  echo "  github_personal_access_token - https://github.com/settings/tokens (recommended)" >&2
 else
-  echo "OK: .env present at $CONFIG_DIR/.env."
+  echo "OK: all research-API secret files are populated."
 fi
 
 # --- oc wrapper (profile launcher) ---

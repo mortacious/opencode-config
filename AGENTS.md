@@ -40,7 +40,14 @@ When editing agent definitions, preserve this separation: primaries must stay un
 
 ## Models
 
-Primary agents (`build`, `plan`, `sparring`-as-primary-when-invoked-directly, `reviewer`) use `neuralwatt/glm-5.2` with `reasoningEffort: high` (set in opencode.jsonc `provider.neuralwatt.models.glm-5.2.variants`). `sparring` sets only `temperature: 0.4` in its own frontmatter; its model and variant come from `opencode.jsonc` `agent.sparring` (so the cheap-local profile overlay can swap them). `sidekick`, `explore`, and `research` use `opencode-go/deepseek-v4-flash` max (agentic execution roles). `design` uses `opencode/gpt-5.6-luna` max - a vision-capable model, since the design agent handles UI/screenshots. These per-agent overrides live in `opencode.jsonc` `agent.*`; `sparring` adds only `temperature: 0.4` in its own frontmatter.
+All model selection for the agents defined here lives in `opencode.jsonc` `agent.*`; profile overlays may swap those values. No `agents/*.md` frontmatter sets `model` or `variant` - the only model-related frontmatter key is `sparring`'s `temperature: 0.4`.
+
+- `build`, `plan`, `reviewer`, `sidekick`, `explore`, `research`: `opencode-go/mimo-v2.6-flash` (no variant).
+- `sparring`: `opencode-go/mimo-v2.6-pro` (no variant).
+- `design`: `opencode/gpt-5.6-luna` with `variant: max` - vision-capable, since design handles UI/screenshots.
+- `small_model`: `opencode-go/mimo-v2.6-flash`.
+
+Neither MiMo model declares reasoning-effort variants on models.dev, so do not add `variant` keys to them: an unknown variant fails model resolution at startup. The `provider.neuralwatt.models.glm-5.2.variants` block (`high`, `max`) remains in the config but no agent currently references it.
 
 ## MCP servers
 

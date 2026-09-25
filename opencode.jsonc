@@ -64,25 +64,25 @@
   },
   "agent": {
     "build": {
-      "model": "opencode-go/mimo-v2.6-flash"
+      "model": "opencode-go/glm-5.3-flash"
     },
     "plan": {
-      "model": "opencode-go/mimo-v2.6-flash"
+      "model": "opencode-go/glm-5.3-flash"
     },
     "sparring": {
-      "model": "opencode-go/mimo-v2.6-pro"
+      "model": "opencode-go/deepseek-v4.1-flash"
     },
     "reviewer": {
-      "model": "opencode-go/mimo-v2.6-flash"
+      "model": "opencode-go/deepseek-v4.1-flash"
     },
     "sidekick": {
-      "model": "opencode-go/mimo-v2.6-flash"
+      "model": "opencode-go/glm-5.3-flash"
     },
     "explore": {
-      "model": "opencode-go/mimo-v2.6-flash"
+      "model": "opencode-go/deepseek-v4.1-flash"
     },
     "research": {
-      "model": "opencode-go/mimo-v2.6-flash"
+      "model": "opencode-go/deepseek-v4.1-flash"
     },
     "design": {
       "model": "gpt-5.6-luna",

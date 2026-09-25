@@ -4,6 +4,10 @@ bun.lock
 bin/*
 !bin/oc
 .venv/
+.venv-ddgs/
+
+# local API keys ({file:secrets/*} in opencode.jsonc) - never commit
+secrets/
 
 # oc wrapper active-profile (machine-local)
 .active-profile

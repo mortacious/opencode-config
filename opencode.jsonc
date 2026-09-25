@@ -1,6 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "small_model": "opencode-go/deepseek-v4-flash",
+  "small_model": "opencode-go/mimo-v2.6-flash",
   "subagent_depth": 2,
   "plugin": [
     "@tarquinen/opencode-dcp@latest",
@@ -49,7 +49,7 @@
     },
     "ddgs": {
       "type": "local",
-      "command": ["{env:HOME}/.config/opencode/.venv/bin/ddgs", "mcp"],
+      "command": ["{env:HOME}/.config/opencode/.venv-ddgs/bin/ddgs", "mcp"],
       "enabled": true
     },
     "sourcegraph": {
@@ -64,32 +64,25 @@
   },
   "agent": {
     "build": {
-      "model": "opencode-go/glm-5.3-flash",
-      "variant": "high"
+      "model": "opencode-go/mimo-v2.6-flash"
     },
     "plan": {
-      "model": "opencode-go/glm-5.3-flash",
-      "variant": "high"
+      "model": "opencode-go/mimo-v2.6-flash"
     },
     "sparring": {
-      "model": "opencode-go/glm-5.3-flash",
-      "variant": "high"
+      "model": "opencode-go/mimo-v2.6-pro"
     },
     "reviewer": {
-      "model": "opencode-go/deepseek-v4-flash",
-      "variant": "max"
+      "model": "opencode-go/mimo-v2.6-flash"
     },
     "sidekick": {
-      "model": "opencode-go/deepseek-v4-flash",
-      "variant": "max"
+      "model": "opencode-go/mimo-v2.6-flash"
     },
     "explore": {
-      "model": "opencode-go/deepseek-v4-flash",
-      "variant": "max"
+      "model": "opencode-go/mimo-v2.6-flash"
     },
     "research": {
-      "model": "opencode-go/deepseek-v4-flash",
-      "variant": "max"
+      "model": "opencode-go/mimo-v2.6-flash"
     },
     "design": {
       "model": "gpt-5.6-luna",
@@ -127,9 +120,13 @@
           "name": "Qwen3.8 27B"
         },
 	"qwen38-flash-next": {
-	  "name": "Qwen3.8-Flash-Next"
+	  "name": "qwen38-flash-next",
+	  "variants": {
+	    "xhigh": { "reasoningEffort": "xhigh" },
+	    "medium": { "reasoningEffort": "medium" },
+	    "low": { "reasoningEffort": "low" }
+	  }
 	}
-	
       }
     }
   }

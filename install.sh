@@ -7,6 +7,7 @@ set -euo pipefail
 CONFIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="$CONFIG_DIR/bin"
 VENV_DIR="$CONFIG_DIR/.venv"
+VENV_DDGS="$CONFIG_DIR/.venv-ddgs"
 SECRETS_DIR="$CONFIG_DIR/secrets"
 
 echo "=== opencode config bootstrap ==="
@@ -126,13 +127,24 @@ else
   # ddgs: metasearch MCP (search_text, search_images, search_news, search_videos,
   # search_books, extract_content). No key required (scrapes DuckDuckGo).
   # Used by sparring + research for general web lookups (Exa-quota-free).
+  # ddgs gets its own venv (.venv-ddgs): mcp-dblp pins mcp>=1.20,<2, while
+  # ddgs[mcp] requires mcp>=2.0 - the two cannot share one venv. opencode.jsonc
+  # references it via {env:HOME}/.config/opencode/.venv-ddgs/bin/ddgs.
   # Always (re)install ddgs[mcp]: ensures the [mcp] extras are present even if
   # bare ddgs was previously installed without them. uv pip install is idempotent.
-  echo "Installing ddgs[mcp] into $VENV_DIR ..."
-  if ! uv pip install --python "$VENV_DIR/bin/python" "ddgs[mcp]" >/dev/null 2>&1; then
-    echo "WARNING: failed to install ddgs[mcp]. The ddgs MCP server will not start." >&2
-  else
-    echo "OK: ddgs[mcp] installed in $VENV_DIR."
+  if [ ! -d "$VENV_DDGS" ]; then
+    echo "Creating Python venv at $VENV_DDGS ..."
+    if ! uv venv "$VENV_DDGS" >/dev/null 2>&1; then
+      echo "WARNING: failed to create venv at $VENV_DDGS. The ddgs MCP server will not start." >&2
+    fi
+  fi
+  if [ -d "$VENV_DDGS" ]; then
+    echo "Installing ddgs[mcp] into $VENV_DDGS ..."
+    if ! uv pip install --python "$VENV_DDGS/bin/python" "ddgs[mcp]" >/dev/null 2>&1; then
+      echo "WARNING: failed to install ddgs[mcp]. The ddgs MCP server will not start." >&2
+    else
+      echo "OK: ddgs[mcp] installed in $VENV_DDGS."
+    fi
   fi
   # NOTE: sourcegraph-mcp is NOT auto-installed. It is disabled in opencode.jsonc
   # because akbad/sourcegraph-mcp only supports HTTP/SSE transports (no stdio).

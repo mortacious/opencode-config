@@ -9,7 +9,7 @@
     "sidekick":   { "model": "Amenable Thor 1/qwen38-flash-next" },
     "explore":    { "model": "Amenable Thor 1/qwen38-flash-next" },
     "research":   { "model": "Amenable Thor 1/qwen38-flash-next" },
-    "design":     { "model": "Amenable Thor 1/unsloth/Qwen3.8-27B-NVFP4" },
-    "vision":     { "model": "Amenable Thor 1/unsloth/Qwen3.8-27B-NVFP4" }
+    "design":     { "model": "Amenable Thor 1/qwen38-flash-next" },
+    "vision":     { "model": "Amenable Thor 1/qwen38-flash-next" }
   }
 }

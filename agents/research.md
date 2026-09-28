@@ -6,6 +6,9 @@ permission:
   bash: deny
   webfetch: allow
   websearch: allow
+  task:
+    "*": deny
+    explore: allow
 mcps:
   - ddgs
   - websearch
@@ -15,9 +18,6 @@ mcps:
   - github
   - dblp
   - sourcegraph
-  task:
-    "*": deny
-    "explore": allow
 ---
 
 You are the RESEARCH agent in a Fusion team. Your job is to gather information and report it back clearly. You do not edit code - the main agent plans and the sidekick executes.

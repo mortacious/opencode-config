@@ -3,98 +3,181 @@
 // cannot enforce who-does-what (permissions do that). It logs the shape of
 // delegation - subagent sessions as they spawn, and edit/write/apply_patch tool calls -
 // so a maintainer can audit that the main agent delegated instead of editing.
-// Logs go through client.app.log (service "fusion-audit"); view them in
+// Logs go through console under the service prefix "fusion-audit"; view them in
 // opencode's logs. This is an aid on top of the ground-truth session DB.
 
-export const FusionAudit = async ({ client }) => {
-  const log = (message, extra) =>
-    client.app.log({ body: { service: "fusion-audit", level: "info", message, extra } });
-  const messagesBySession = new Map();
+// v2 port of the opencode plugin SDK (v1 exported an async ({ client }) => hooks
+// function; v2 requires the standard definition form with { id, setup } and
+// exposes the same data through ctx.event / ctx.tool instead of v1's hook names).
 
-  return {
-    event: async ({ event }) => {
-      if (!event) return;
-      if (event.type === "session.created") {
-        const info = event.properties?.info ?? {};
-        // A child session (has parentID) is a delegation. Root sessions have none.
-        if (info.parentID) {
-          log("subagent session spawned", {
-            sessionID: info.id,
-            parentID: info.parentID,
-            title: info.title,
+import { Plugin } from "@opencode/plugin";
+
+export default Plugin.define({
+  id: "fusion-audit",
+  async setup(ctx) {
+    // v2 port: client.app.log equivalent not found in @opencode/plugin typings
+    // - logging routed to console
+    const log = (message, extra) =>
+      console.log(JSON.stringify({ service: "fusion-audit", level: "info", message, extra }));
+    const messagesBySession = new Map();
+
+    // Drain every server event and dispatch it the same way the v1
+    // event(event) hook did. SubscribeOptions.signal is the v2 replacement
+    // for the disposable/registration-based hooks: the AbortSignal lets the
+    // cleanup function returned by setup() cancel the SSE subscription.
+    const controller = new AbortController();
+    const eventStream = ctx.event.subscribe({ signal: controller.signal });
+    (async () => {
+      try {
+        for await (const event of eventStream) {
+          if (!event) continue;
+          // v1 invoked the event handler once per event, so a guard could
+          // bail out of a single event and still see the next one. This
+          // drained for-await loop processes every event inline instead, so
+          // a bad event must only skip itself via `continue;` - an early
+          // exit here would kill the subscription for the rest of the
+          // process lifetime. The dispatch is additionally wrapped in a
+          // try/catch: a per-event failure is logged and the loop keeps
+          // iterating instead of dying on the first malformed event.
+          try {
+            if (event.type === "session.created") {
+              const info = event.properties?.info ?? event.data ?? {};
+              // A child session (has parentID) is a delegation.
+              // Root sessions have none.
+              if (info.parentID) {
+                log("subagent session spawned", {
+                  sessionID: info.id ?? info.sessionID,
+                  parentID: info.parentID,
+                  title: info.title,
+                });
+              }
+            }
+            // Per-step token attribution: each assistant step emits a
+            // started/ended event pair; the started event seeds the
+            // per-message entry, the ended event accumulates its token
+            // and cost counts into it.
+            if (event.type === "session.step.started") {
+              const info = event.data ?? event.properties;
+              if (!info) continue;
+              if (
+                typeof info.assistantMessageID !== "string" ||
+                typeof info.sessionID !== "string" ||
+                typeof info.agent !== "string" ||
+                typeof info.model?.id !== "string"
+              ) continue;
+              const messages = messagesBySession.get(info.sessionID) ?? new Map();
+              messages.set(info.assistantMessageID, {
+                agent: info.agent,
+                modelID: info.model.id,
+                providerID: typeof info.model.providerID === "string" ? info.model.providerID : undefined,
+                input: 0,
+                output: 0,
+                reasoning: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                cost: 0,
+              });
+              messagesBySession.set(info.sessionID, messages);
+            }
+            if (event.type === "session.step.ended") {
+              const info = event.data ?? event.properties;
+              if (!info) continue;
+              if (
+                typeof info.assistantMessageID !== "string" ||
+                typeof info.sessionID !== "string"
+              ) continue;
+              const messages = messagesBySession.get(info.sessionID);
+              const entry = messages?.get(info.assistantMessageID);
+              if (!entry || !messages) continue;
+              const tokens = info.tokens;
+              if (Number.isFinite(tokens?.input)) entry.input += tokens.input;
+              if (Number.isFinite(tokens?.output)) entry.output += tokens.output;
+              if (Number.isFinite(tokens?.reasoning)) entry.reasoning += tokens.reasoning;
+              if (Number.isFinite(tokens?.cache?.read)) entry.cacheRead += tokens.cache.read;
+              if (Number.isFinite(tokens?.cache?.write)) entry.cacheWrite += tokens.cache.write;
+              if (Number.isFinite(info.cost)) entry.cost += info.cost;
+            }
+            if (event.type === "session.step.failed") {
+              const info = event.data ?? event.properties;
+              if (!info) continue;
+              if (
+                typeof info.assistantMessageID !== "string" ||
+                typeof info.sessionID !== "string"
+              ) continue;
+              const messages = messagesBySession.get(info.sessionID);
+              const entry = messages?.get(info.assistantMessageID);
+              if (!entry || !messages) continue;
+              const tokens = info.tokens;
+              if (Number.isFinite(tokens?.input)) entry.input += tokens.input;
+              if (Number.isFinite(tokens?.output)) entry.output += tokens.output;
+              if (Number.isFinite(tokens?.reasoning)) entry.reasoning += tokens.reasoning;
+              if (Number.isFinite(tokens?.cache?.read)) entry.cacheRead += tokens.cache.read;
+              if (Number.isFinite(tokens?.cache?.write)) entry.cacheWrite += tokens.cache.write;
+              if (Number.isFinite(info.cost)) entry.cost += info.cost;
+            }
+            if (event.type === "session.idle") {
+              const sessionID = event.properties?.sessionID ?? event.data?.sessionID;
+              const messages = messagesBySession.get(sessionID);
+              if (!messages?.size) continue;
+
+              const totals = new Map();
+              for (const item of messages.values()) {
+                const key = `${item.agent}\u0000${item.modelID}`;
+                const total = totals.get(key) ?? {
+                  agent: item.agent,
+                  modelID: item.modelID,
+                  ...(item.providerID ? { providerID: item.providerID } : {}),
+                  input: 0,
+                  output: 0,
+                  reasoning: 0,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                };
+                total.input += item.input;
+                total.output += item.output;
+                total.reasoning += item.reasoning;
+                total.cacheRead += item.cacheRead;
+                total.cacheWrite += item.cacheWrite;
+                if (item.cost !== undefined) total.cost = (total.cost ?? 0) + item.cost;
+                totals.set(key, total);
+              }
+
+              messagesBySession.delete(sessionID);
+              const usage = [...totals.values()].sort(
+                (a, b) => a.agent.localeCompare(b.agent) || a.modelID.localeCompare(b.modelID)
+              );
+              log("session token usage", { sessionID, usage });
+            }
+          } catch (error) {
+            // A dispatch failure affects only this event: log and move on
+            // to the next one, never propagate, never drop the stream.
+            log("event dispatch error", {
+              eventType: event.type,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+      } catch (error) {
+        // Subscription-level failure. The abort raised by the cleanup
+        // function cancelling the stream is normal shutdown and is silently
+        // ignored; any subscription-level exception is logged instead of
+        // rethrown - rethrowing here becomes an unhandled rejection that
+        // can crash the host process, which is unacceptable for a
+        // read-only observability plugin.
+        if (!controller.signal.aborted) {
+          log("event drain error", {
+            error: error instanceof Error ? error.message : String(error),
           });
         }
       }
-      if (event.type === "message.updated") {
-        const info = event.properties?.info;
-        const tokens = info?.tokens;
-        const values = [
-          tokens?.input,
-          tokens?.output,
-          tokens?.reasoning,
-          tokens?.cache?.read,
-          tokens?.cache?.write,
-        ];
-        if (
-          info?.role !== "assistant" ||
-          typeof info.id !== "string" ||
-          typeof info.sessionID !== "string" ||
-          typeof info.mode !== "string" ||
-          typeof info.modelID !== "string" ||
-          !values.every(Number.isFinite)
-        ) return;
+    })();
 
-        const messages = messagesBySession.get(info.sessionID) ?? new Map();
-        messages.set(info.id, {
-          agent: info.mode,
-          modelID: info.modelID,
-          providerID: typeof info.providerID === "string" ? info.providerID : undefined,
-          input: tokens.input,
-          output: tokens.output,
-          reasoning: tokens.reasoning,
-          cacheRead: tokens.cache.read,
-          cacheWrite: tokens.cache.write,
-          cost: Number.isFinite(info.cost) ? info.cost : undefined,
-        });
-        messagesBySession.set(info.sessionID, messages);
-      }
-      if (event.type === "session.idle") {
-        const sessionID = event.properties?.sessionID;
-        const messages = messagesBySession.get(sessionID);
-        if (!messages?.size) return;
-
-        const totals = new Map();
-        for (const item of messages.values()) {
-          const key = `${item.agent}\u0000${item.modelID}`;
-          const total = totals.get(key) ?? {
-            agent: item.agent,
-            modelID: item.modelID,
-            ...(item.providerID ? { providerID: item.providerID } : {}),
-            input: 0,
-            output: 0,
-            reasoning: 0,
-            cacheRead: 0,
-            cacheWrite: 0,
-          };
-          total.input += item.input;
-          total.output += item.output;
-          total.reasoning += item.reasoning;
-          total.cacheRead += item.cacheRead;
-          total.cacheWrite += item.cacheWrite;
-          if (item.cost !== undefined) total.cost = (total.cost ?? 0) + item.cost;
-          totals.set(key, total);
-        }
-
-        messagesBySession.delete(sessionID);
-        const usage = [...totals.values()].sort(
-          (a, b) => a.agent.localeCompare(b.agent) || a.modelID.localeCompare(b.modelID)
-        );
-        log("session token usage", { sessionID, usage });
-      }
-    },
-    "tool.execute.after": async (input) => {
-      // Surface the file-mutating and delegation tools for the audit trail.
-      // "apply_patch" is the third mutation tool gated by the edit permission.
+    // Aggregate the file-mutating and delegation tools for the audit trail.
+    // "apply_patch" is the third mutation tool gated by the edit permission.
+    // The hook call resolves to a Registration whose dispose must be awaited
+    // during cleanup, or the tool hook stays registered after the plugin
+    // releases everything else.
+    const toolHookRegistration = await ctx.tool.hook("execute.after", async (input) => {
       if (
         input.tool === "edit" ||
         input.tool === "write" ||
@@ -103,6 +186,14 @@ export const FusionAudit = async ({ client }) => {
       ) {
         log("tool executed", { tool: input.tool, sessionID: input.sessionID });
       }
-    },
-  };
-};
+    });
+
+    // v2 cleanup: aborts the event subscription, releases the Map, and
+    // disposes the tool hook registration.
+    return async () => {
+      controller.abort();
+      messagesBySession.clear();
+      await toolHookRegistration?.dispose?.();
+    };
+  },
+});

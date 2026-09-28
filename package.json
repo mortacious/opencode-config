@@ -1,6 +1,7 @@
 {
   "dependencies": {
-    "@opencode-ai/plugin": "1.14.20"
+    "@opencode-ai/plugin": "1.14.20",
+    "@opencode/plugin": "^2.0.18"
   },
   "allowScripts": {
     "msgpackr-extract@3.0.4": true

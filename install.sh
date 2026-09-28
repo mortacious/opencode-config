@@ -167,13 +167,13 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
-# --- local deps (plugin authoring; @opencode-ai/plugin) ---
+# --- local deps (plugin authoring; @opencode-ai/plugin, @opencode/plugin) ---
 # Installs to ./node_modules in this config dir. Nothing global.
 echo "Running npm install (local deps only, no -g)..."
 npm install --no-audit --no-fund
 
 # --- opencode plugins ---
-# Note: the plugins listed in opencode.jsonc "plugin" array (@tarquinen/opencode-dcp,
+# Note: the plugins listed in opencode.jsonc "plugins" array (@tarquinen/opencode-dcp,
 # caveman-opencode-plugin) are resolved by opencode itself on first run - they do
 # not need to be pre-installed by this script.
 

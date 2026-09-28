@@ -1,68 +1,67 @@
+// OpenCode v2 (branch v2-port)
 {
   "$schema": "https://opencode.ai/config.json",
   "small_model": "opencode-go/mimo-v2.6-flash",
-  "subagent_depth": 2,
-  "plugin": [
+  "experimental": { "subagent_depth": 2 },
+  "plugins": [
     "@tarquinen/opencode-dcp@latest",
     "caveman-opencode-plugin@latest"
   ],
-  "lsp": true,
+  // lsp: dropped in v2 port - not a documented v2 top-level key
   // Auto-allow the shared knowledge dir so agents loading web-search
   // strategy modules via read don't prompt for external_directory access.
   // Scope is narrow: .env (one level up, gitignored) stays blocked.
-  "permission": {
-    "external_directory": {
-      "~/.config/opencode/knowledge/**": "allow"
-    }
-  },
+  "permissions": [ { "action": "external_directory", "resource": "~/.config/opencode/knowledge/**", "effect": "allow" } ],
   "mcp": {
-    "codegraph": {
-      "type": "local",
-      "command": [
-        "codegraph",
-        "serve",
-        "--mcp"
-      ],
-      "enabled": true
-    },
-    "semantic-scholar": {
-      "type": "local",
-      "command": ["npx", "-y", "@xbghc/semanticscholar-mcp"],
-      "environment": { "SEMANTIC_SCHOLAR_API_KEY": "{file:secrets/semantic_scholar_api_key}" },
-      "enabled": true
-    },
-    "arxiv": {
-      "type": "local",
-      "command": ["npx", "-y", "@cyanheads/arxiv-mcp-server"],
-      "enabled": true
-    },
-    "github": {
-      "type": "local",
-      "command": ["{env:HOME}/.config/opencode/bin/github-mcp-server", "stdio", "--read-only", "--toolsets", "repos,issues,pull_requests,users"],
-      "environment": { "GITHUB_PERSONAL_ACCESS_TOKEN": "{file:secrets/github_personal_access_token}" },
-      "enabled": true
-    },
-    "dblp": {
-      "type": "local",
-      "command": ["{env:HOME}/.config/opencode/.venv/bin/mcp-dblp"],
-      "enabled": true
-    },
-    "ddgs": {
-      "type": "local",
-      "command": ["{env:HOME}/.config/opencode/.venv-ddgs/bin/ddgs", "mcp"],
-      "enabled": true
-    },
-    "sourcegraph": {
-      "type": "local",
-      "command": ["{env:HOME}/.config/opencode/.venv/bin/sourcegraph-mcp"],
-      "environment": {
-        "SRC_ENDPOINT": "{env:SRC_ENDPOINT}",
-        "SRC_ACCESS_TOKEN": "{env:SRC_ACCESS_TOKEN}"
+    "servers": {
+      "codegraph": {
+        "type": "local",
+        "command": [
+          "codegraph",
+          "serve",
+          "--mcp"
+        ],
+        "disabled": false
       },
-      "enabled": false
+      "semantic-scholar": {
+        "type": "local",
+        "command": ["npx", "-y", "@xbghc/semanticscholar-mcp"],
+        "environment": { "SEMANTIC_SCHOLAR_API_KEY": "{file:secrets/semantic_scholar_api_key}" },
+        "disabled": false
+      },
+      "arxiv": {
+        "type": "local",
+        "command": ["npx", "-y", "@cyanheads/arxiv-mcp-server"],
+        "disabled": false
+      },
+      "github": {
+        "type": "local",
+        "command": ["{env:HOME}/.config/opencode/bin/github-mcp-server", "stdio", "--read-only", "--toolsets", "repos,issues,pull_requests,users"],
+        "environment": { "GITHUB_PERSONAL_ACCESS_TOKEN": "{file:secrets/github_personal_access_token}" },
+        "disabled": false
+      },
+      "dblp": {
+        "type": "local",
+        "command": ["{env:HOME}/.config/opencode/.venv/bin/mcp-dblp"],
+        "disabled": false
+      },
+      "ddgs": {
+        "type": "local",
+        "command": ["{env:HOME}/.config/opencode/.venv-ddgs/bin/ddgs", "mcp"],
+        "disabled": false
+      },
+      "sourcegraph": {
+        "type": "local",
+        "command": ["{env:HOME}/.config/opencode/.venv/bin/sourcegraph-mcp"],
+        "environment": {
+          "SRC_ENDPOINT": "{env:SRC_ENDPOINT}",
+          "SRC_ACCESS_TOKEN": "{env:SRC_ACCESS_TOKEN}"
+        },
+        "disabled": true
+      }
     }
   },
-  "agent": {
+  "agents": {
     "build": {
       "model": "opencode-go/glm-5.3-flash"
     },
@@ -85,48 +84,42 @@
       "model": "opencode-go/deepseek-v4.1-flash"
     },
     "design": {
-      "model": "gpt-5.6-luna",
-      "variant": "max"
+      "model": "gpt-5.6-luna#max"
     },
     "vision": {
-      "model": "gpt-5.6-luna",
-      "variant": "max"
+      "model": "gpt-5.6-luna#max"
     }
   },
-  "provider": {
+  "providers": {
     "neuralwatt": {
       "models": {
         "glm-5.2": {
-          "variants": {
-            "high": {
-              "reasoningEffort": "high"
-            },
-            "max": {
-              "reasoningEffort": "max"
-            }
-          }
+          "variants": [
+            { "id": "high", "body": { "reasoningEffort": "high" } },
+            { "id": "max", "body": { "reasoningEffort": "max" } }
+          ]
         }
       }
     },
     "Amenable Thor 1": {
-        "npm": "@ai-sdk/openai-compatible",
-        "name": "Amenable Thor 1",
-        "options": {
-          "baseURL": "http://10.249.3.0:3000/api/v1",
-          "apiKey": "sk-1160d220edc64d189934232ad4ff77b7"
+      "package": "aisdk:@ai-sdk/openai-compatible",
+      "name": "Amenable Thor 1",
+      "settings": {
+        "baseURL": "http://10.249.3.0:3000/api/v1",
+        "apiKey": "sk-1160d220edc64d189934232ad4ff77b7"
       },
       "models": {
         "unsloth/Qwen3.8-27B-NVFP4": {
           "name": "Qwen3.8 27B"
         },
-	"qwen38-flash-next": {
-	  "name": "qwen38-flash-next",
-	  "variants": {
-	    "xhigh": { "reasoningEffort": "xhigh" },
-	    "medium": { "reasoningEffort": "medium" },
-	    "low": { "reasoningEffort": "low" }
-	  }
-	}
+        "qwen38-flash-next": {
+          "name": "qwen38-flash-next",
+          "variants": [
+            { "id": "xhigh", "body": { "reasoningEffort": "xhigh" } },
+            { "id": "medium", "body": { "reasoningEffort": "medium" } },
+            { "id": "low", "body": { "reasoningEffort": "low" } }
+          ]
+        }
       }
     }
   }

@@ -7,15 +7,19 @@ OpenCode v1.18.31), reshaped into the native OpenCode 2 configuration format.
 The `main` branch stays on the v1 shape until OpenCode 2.0 is stable, so the
 checkout branch alone decides which config shape loads.
 
-Current port commit:
+Port history (newest first; `git log v2-port` for the current HEAD):
 
     7f35fc0 Port configuration to OpenCode v2 (native config shape, v2 plugin API, cli.json)
+    (this change set) Remove the caveman plugin; package fusion-audit as a local v2 plugin (plugin-src/fusion-audit); repin design/vision models to opencode-go/gpt-5.6-luna
 
 ## What was ported
 
 - `opencode.jsonc` rewritten to native v2 shape:
   - `plugin` -> `plugins`, `agent` -> `agents`, `provider` -> `providers` (with `settings`).
-  - Model variants as arrays; variant folded into model refs, e.g. `gpt-5.6-luna#max`.
+  - Model variants as arrays; variant folded into model refs. The `gpt-5.6-luna#max`
+    ref originally written for design/vision was rejected by v2 config normalization
+    (no provider prefix; no `max` variant exists for that model) - both agents now
+    pin `opencode-go/gpt-5.6-luna`.
   - Permissions expressed as an ordered array (v1 map -> v2 list).
   - MCP config nested under `mcp.servers`; the old `enabled: true` became
     `disabled: false` (inverted semantics).
@@ -23,9 +27,13 @@ Current port commit:
 - `profiles/cheap-local` overlay updated: `agent` keys -> `agents` (all agents
   pointed at Amenable Thor 1 (local OpenAI-compatible provider block) /
   qwen38-flash-next).
-- `plugins/fusion-audit.js` rewritten to the `@opencode/plugin` `Plugin.define`
-  API, using `session.step.started/ended/failed` for token accounting
-  (v2 removed `message.updated`).
+- fusion-audit rewritten to the `@opencode/plugin` `Plugin.define` API, using
+  `session.step.started/ended/failed` for token accounting (v2 removed
+  `message.updated`), then restructured into a local plugin package
+  `plugin-src/fusion-audit/` (index.js plus its own `package.json`) and
+  registered explicitly as `./plugin-src/fusion-audit` in `opencode.jsonc`.
+  Bare-file plugin discovery could not resolve `@opencode/plugin` from the v2
+  service - seen in logs 2026-09-28 - so the bare-file form is not enough.
 - `cli.json` created (DCP-only plugin list) for the v2 terminal client.
 - `tui.json` intentionally left v1-correct; v2 ignores it.
 - `AGENTS.md`, `README.md`, `install.sh` updated to v2 key names.
@@ -55,9 +63,9 @@ changed by the port, so switching back is lossless.
 - DCP loads: requires `@tarquinen/opencode-dcp` >= 3.2.0.
 - `experimental.subagent_depth: 2` behavior: known GUI bug #48515 - drop to 1
   if navigation misbehaves.
-- caveman-opencode-plugin loads: v2 support unverified; v1-only plugins
-  hard-break v2 startup (issue #48365). If startup fails, remove it from the
-  `plugins` array.
+- caveman-opencode-plugin: REMOVED (decided 2026-09-28). v1-only plugins
+  hard-break v2 startup (issue #48365), and this one was not needed - it is
+  gone from the `plugins` array and from all doc/install references.
 - DCP compress `ask` permission is unsupported in v2 (DCP v2 supports only
   allow/deny). `dcp.jsonc` currently has no permission overrides, so this is
   likely moot.
@@ -74,12 +82,10 @@ changed by the port, so switching back is lossless.
 - All seven MCP servers (codegraph, ddgs, github, dblp, semantic-scholar,
   arxiv, sourcegraph) have no native replacements and stay.
 - fusion-audit has no native equivalent and was ported.
-- caveman is the only plugin candidate to drop if it does not run on v2.
 
 ## Pending items
 
 - Validate a fresh v2 session end to end (checklist above).
-- Decide whether to keep or drop caveman after the first run.
 - `bin/oc` currently invokes the v1 `opencode` binary; adapt it or invoke
   `opencode2` for v2 profile use.
 - Migrate the profile overlays fully once v2 proves stable.

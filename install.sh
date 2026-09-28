@@ -172,10 +172,23 @@ fi
 echo "Running npm install (local deps only, no -g)..."
 npm install --no-audit --no-fund
 
+# --- fusion-audit plugin package (plugin-src/fusion-audit) ---
+# Registered in opencode.jsonc "plugins" as "./plugin-src/fusion-audit". It is a
+# local plugin package with its own dependency (@opencode/plugin), resolved from
+# its own node_modules - so it needs its own install step here.
+echo "Installing fusion-audit plugin deps (plugin-src/fusion-audit)..."
+if ! ( cd "$CONFIG_DIR/plugin-src/fusion-audit" && npm install --no-audit --no-fund ); then
+  echo "WARNING: failed to install fusion-audit plugin deps; the plugin will not load." >&2
+else
+  echo "OK: fusion-audit plugin deps installed."
+fi
+
 # --- opencode plugins ---
-# Note: the plugins listed in opencode.jsonc "plugins" array (@tarquinen/opencode-dcp,
-# caveman-opencode-plugin) are resolved by opencode itself on first run - they do
-# not need to be pre-installed by this script.
+# Note: the npm-listed plugin in opencode.jsonc "plugins" array
+# (@tarquinen/opencode-dcp) is resolved by opencode itself on first run - it does
+# not need to be pre-installed by this script. The local plugin package
+# plugin-src/fusion-audit in the same array gets its dependencies installed in
+# the step above.
 
 # --- provider API keys ---
 # The neuralwatt provider needs an API key available to opencode. opencode looks

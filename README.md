@@ -20,7 +20,7 @@ Personal opencode configuration. Managed as a private git repo for deployment ac
 6. `install.sh` now auto-installs the `github-mcp-server` Go binary into `./bin/` (symlinks a system one if present, otherwise downloads the latest release from GitHub) and creates a self-contained Python venv at `./.venv/` with `mcp-dblp` installed via `uv`. Run `./install.sh` on each deployed machine; re-running is safe.
 7. `install.sh` creates empty placeholder files in `secrets/` for the research-API keys. Paste each key into its file (just the key, no `var=` prefix or quotes): `secrets/semantic_scholar_api_key` (optional, https://www.semanticscholar.org/product/api) and `secrets/github_personal_access_token` (recommended, https://github.com/settings/tokens). No shell sourcing needed - opencode reads these files directly at startup.
 8. Export `NEURALWATT_API_KEY` in your shell (e.g. add to `~/.bashrc` or `~/.zshrc`).
-9. Start opencode. It will resolve the plugins listed in `opencode.jsonc` (`@tarquinen/opencode-dcp`, `caveman-opencode-plugin`) on first run.
+9. Start opencode. It will resolve `@tarquinen/opencode-dcp` (listed in `opencode.jsonc`) on first run; the local plugin package `plugin-src/fusion-audit` is also listed there and its dependencies are installed by `./install.sh`.
 
 ## What lives where
 

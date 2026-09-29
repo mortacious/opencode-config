@@ -19,6 +19,9 @@ permission:
     "git push -f*": deny
     "git push *--force*": deny
     "git push * -f*": deny
+    "git stash push*": ask
+    "git -C * stash push*": ask
+    "git -c * stash push*": ask
     "git reset --hard*": ask
     "git clean*": ask
     "rm -rf *": ask

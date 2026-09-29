@@ -16,6 +16,13 @@ permission:
     "npm run lint*": allow
     "npm test*": allow
     "npx vitest run*": allow
+    "git stash list*": allow
+    "git branch --show-current*": allow
+    "git branch --list*": allow
+    "git branch -a": allow
+    "node --check*": allow
+    "head*": allow
+    "ls*": allow
     "git diff --output*": deny
     "git diff *--output*": deny
     "git log --output*": deny
@@ -29,6 +36,7 @@ permission:
     "npx vitest run --update*": deny
     "npx vitest run * -u*": deny
     "npx vitest run *--update*": deny
+    "head *.env*": deny
   # Delegation runs only through build/plan: subagents cannot spawn
   # subagents ("task" is the legacy alias of the v2 "subagent" action).
   task: deny
@@ -56,7 +64,7 @@ Identify the mode from what you were handed: a plan or intended approach means p
 - Plan review: read the files the plan touches and judge the plan against the real code, not against its own description of the code.
 - Read surrounding code with read/grep/glob to judge impact.
 - Grep/glob silently skip gitignored paths, and `git diff` does not show ignored untracked files. Zero matches in an ignored area (fixtures, generated code, local config) is not proof of absence - read explicit file paths when an ignored file matters to the verdict.
-- Content search: use the grep/glob/read tools, not bash. Bash here is deny-by-default (only git diff/status/log/show/ls-files and the lint/test commands match), so `git grep` and flag-first forms like `git -c ... grep` are blocked. Chained lines are matched segment by segment and denied if any segment fails, which in practice blocks the pipes you would reach for here (`| head`, `| grep`) because the consumer is not on the list. Pass paths to git directly (`git diff <paths>`), not after a bare `--` separator - a standalone `--` can fail the allowlist match and get the call denied.
+- Content search: use the grep/glob/read tools, not bash. Bash here is deny-by-default (only git diff/status/log/show/ls-files, git stash list, git branch listing (--show-current/--list/-a), ls, head, node --check and the lint/test commands match), so `git grep` and flag-first forms like `git -c ... grep` are blocked. Pipelines match segment by segment, so `git diff <files> | head -50` runs once head is allowed; anything whose own segment matches no allow pattern (like `git grep`) remains denied. Pass paths to git directly (`git diff <paths>`), not after a bare `--` separator - a standalone `--` can fail the allowlist match and get the call denied.
 - A denied command is a boundary, not a puzzle. If the allowlist refuses something, do not hunt for a variant that slips through - a different flag spelling, an option that smuggles in arbitrary execution, or a wrapper around the same work. Run an allowed command that answers the same question, or report in GAPS which command you would need and why. A verdict that rests on a command you had to sneak past the allowlist is not a verdict the main agent can trust.
 
 ## How you report

@@ -1,1 +1,17 @@
-{"plugins": ["@tarquinen/opencode-dcp@latest"]}
+{
+  "plugins": [
+    "@tarquinen/opencode-dcp@latest"
+  ],
+  "theme": {
+    "name": "catppuccin"
+  },
+  "session": {
+    "scrollbar": true
+  },
+  "tabs": {
+    "layout": "horizontal"
+  },
+  "scroll": {
+    "acceleration": true
+  }
+}

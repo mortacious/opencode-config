@@ -6,7 +6,20 @@
   "experimental": { "subagent_depth": 2 },
   "plugins": [
     "@tarquinen/opencode-dcp@latest",
-    "./plugin-src/fusion-audit"
+    "./plugin-src/fusion-audit",
+    {
+      "package": "./plugin-src/fusion-tools",
+      "options": {
+        "advisor": {
+          "enabled": true,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "scope": ["build", "plan"]
+        },
+        "fanout": {
+          "maxConcurrency": 8
+        }
+      }
+    }
   ],
   // lsp: dropped in v2 port - not a documented v2 top-level key
   // Auto-allow the shared knowledge dir so agents loading web-search
@@ -82,6 +95,9 @@
       "model": "opencode-go/deepseek-v4.1-flash"
     },
     "research": {
+      "model": "opencode-go/deepseek-v4.1-flash"
+    },
+    "advisor": {
       "model": "opencode-go/deepseek-v4.1-flash"
     },
     "design": {

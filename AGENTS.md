@@ -10,6 +10,7 @@ This repository is the user's personal OpenCode configuration directory (`~/.con
 - `command/` - custom command directory (slash commands); currently holds `quick.md` and `profile.md`. Drop new command files here.
 - `knowledge/web-search-modules/` - search-strategy modules used by the research/web-search flow.
 - `plugin-src/fusion-audit/` - local plugin package (deps installed via install.sh, registered as `./plugin-src/fusion-audit` in opencode.jsonc) holding the read-only observability plugin for the Fusion delegation tree. Logs subagent spawns and edit/task tool calls to OpenCode logs under service `fusion-audit`. It does NOT enforce who-does-what; permissions do that.
+- `plugin-src/fusion-tools/` - local plugin package implementing the advisor feature: a peer reviewer that shadows scoped primary sessions and relays `advise` tool notes back into the primary with severity-based delivery.
 - `dcp.jsonc` - schema reference for the `@tarquinen/opencode-dcp` plugin (the `compress` tool comes from this).
 - `tui.json` - SEPARATE plugin list loaded in the TUI context. The DCP plugin appears in both this and `opencode.jsonc`; keep them in sync when changing plugin sets. On the v2-port branch, opencode v2 ignores tui.json and reads cli.json instead; cli.json mirrors this TUI-only plugin set (the DCP plugin), not the main config's plugins.
 - `package.json` - plugin-authoring deps `@opencode-ai/plugin` (v1) and `@opencode/plugin` (v2, used on the v2-port branch).
@@ -41,10 +42,10 @@ When editing agent definitions, preserve this separation: primaries must stay un
 
 ## Models
 
-All model selection for the agents defined here lives in `opencode.jsonc` `agent.*`; profile overlays may swap those values. No `agents/*.md` frontmatter sets `model` or `variant` - the only model-related frontmatter key is `sparring`'s `temperature: 0.4`.
+All model selection for the agents defined here lives in `opencode.jsonc` `agent.*`; profile overlays may swap those values. Two agent files pin `model:` in frontmatter as self-contained overrides (`explore.md`, `advisor.md`); config `agents.*` model pins and profile overlays take precedence over them. No other `agents/*.md` frontmatter sets `model` or `variant` - the only other model-related frontmatter key is `sparring`'s `temperature: 0.4`.
 
 - `build`, `plan`, `sidekick`: `opencode-go/glm-5.3-flash` (no variant).
-- `sparring`, `reviewer`, `explore`, `research`: `opencode-go/deepseek-v4.1-flash` (no variant).
+- `advisor`, `sparring`, `reviewer`, `explore`, `research`: `opencode-go/deepseek-v4.1-flash` (no variant).
 - `design` and `vision`: `opencode-go/gpt-5.6-luna` - vision-capable, since design handles UI/screenshots.
 - `small_model`: `opencode-go/mimo-v2.6-flash`.
 

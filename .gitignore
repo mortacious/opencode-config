@@ -11,3 +11,6 @@ secrets/
 
 # oc wrapper active-profile (machine-local)
 .active-profile
+
+# opencode v2 runtime state (contains server password)
+service.json

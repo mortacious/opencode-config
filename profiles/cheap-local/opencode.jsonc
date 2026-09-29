@@ -10,6 +10,7 @@
     "explore":    { "model": "Amenable Thor 1/qwen38-flash-next" },
     "research":   { "model": "Amenable Thor 1/qwen38-flash-next" },
     "advisor":    { "model": "Amenable Thor 1/qwen38-flash-next" },
+    "worker":     { "model": "Amenable Thor 1/qwen38-flash-next" },
     "design":     { "model": "Amenable Thor 1/qwen38-flash-next" },
     "vision":     { "model": "Amenable Thor 1/qwen38-flash-next" }
   }

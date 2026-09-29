@@ -6,14 +6,14 @@
 //
 // Pure module: operates on plain message objects, so node:test can drive it.
 
-const SELF_METADATA_VALUES = new Set(["advisor", "advisor-note"]);
+const SELF_METADATA_VALUES = new Set(["advisor", "advisor-note", "steer"]);
 
 export function isSelfMessage(msg) {
   const md = msg && msg.metadata;
   if (!md || typeof md !== "object") return false;
   const kind = md.fusionTools;
   if (typeof kind !== "string") return false;
-  return kind === "advisor" || kind === "advisor-note";
+  return SELF_METADATA_VALUES.has(kind);
 }
 
 const SUMMARY_LIMIT = 200;

@@ -11,12 +11,18 @@
       "package": "./plugin-src/fusion-tools",
       "options": {
         "advisor": {
-          "enabled": true,
+          "enabled": false,
           "model": "opencode-go/deepseek-v4.1-flash",
-          "scope": ["build", "plan"]
+          "scope": ["build", "plan"],
+          "activation": "idle-complex",
+          "minStepsTurn": 8,
+          "minTurnDeltaChars": 8000,
+          "failurePauseMs": 900000
         },
         "fanout": {
-          "maxConcurrency": 8
+          "enabled": true,
+          "maxConcurrency": 8,
+          "defaultAgent": "worker"
         }
       }
     }

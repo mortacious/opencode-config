@@ -6,9 +6,10 @@ permission:
   bash: deny
   webfetch: allow
   websearch: allow
-  task:
-    "*": deny
-    explore: allow
+  # Delegation runs only through build/plan: subagents cannot spawn
+  # subagents ("task" is the legacy alias of the v2 "subagent" action).
+  task: deny
+  subagent: deny
 mcps:
   - ddgs
   - websearch

@@ -33,6 +33,17 @@ permissions:
   - action: glob
     resource: "*"
     effect: allow
+  # Subagent-spawn denies. This frontmatter uses only native v2 keys, so the
+  # `permissions` array IS applied (the v2-array-inert quirk affects only
+  # frontmatter with non-native keys, e.g. explore.md's legacy map). The
+  # "task" entry is documentation only: the v2 action is "subagent"; legacy
+  # map aliases are normalized at load but native-array entries are not.
+  - action: subagent
+    resource: "*"
+    effect: deny
+  - action: task
+    resource: "*"
+    effect: deny
 ---
 
 You are a peer-shadow reviewer watching a colleague agent work, in real time.

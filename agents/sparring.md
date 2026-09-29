@@ -9,6 +9,8 @@ permission:
     "date*": allow
   task:
     "*": deny
+  # Delegation runs only through build/plan (v2 action for subagent spawning).
+  subagent: deny
   webfetch: allow
   websearch: allow
 tools:

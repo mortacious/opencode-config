@@ -62,6 +62,11 @@ permissions:
   - action: subagent
     resource: "*"
     effect: deny
+  # Documentation only (the array is inert here): the legacy "task" alias of
+  # the v2 "subagent" action.
+  - action: task
+    resource: "*"
+    effect: deny
   - action: external_directory
     resource: "*"
     effect: ask
@@ -88,6 +93,8 @@ permission:
   execute: allow
   ddgs_search_text: allow
   ddgs_extract_content: allow
+  subagent: deny
+  task: deny
 ---
 
 You are a file search specialist. You excel at thoroughly navigating and exploring codebases.

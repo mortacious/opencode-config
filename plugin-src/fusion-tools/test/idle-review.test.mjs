@@ -10,9 +10,25 @@
 //
 // Run: node --test plugin-src/fusion-tools/test/
 
-import { test } from "node:test";
+import { test, after } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { readFile } from "node:fs/promises";
+
+// Isolate the plugin log: test runs must never append to the live state
+// file (~/.local/state/opencode/fusion-tools.log). The temp dir is removed
+// after the suite finishes (top-level after hook).
+const TEST_LOG_DIR = mkdtempSync(path.join(os.tmpdir(), "fusion-tools-test-log-"));
+process.env.FUSION_TOOLS_LOG_FILE = path.join(TEST_LOG_DIR, "test.log");
+after(() => {
+  try {
+    rmSync(TEST_LOG_DIR, { recursive: true, force: true });
+  } catch {
+    // best effort
+  }
+});
 
 import plugin, { default as defaultPlugin } from "../index.js";
 import { ACK_QUEUED, ACK_DELIVERED } from "../lib/routing.js";
@@ -24,6 +40,7 @@ assert.equal(plugin, defaultPlugin);
 function makeCtx() {
   const hooks = { context: null };
   const tools = [];
+  const commands = [];
   const calls = {
     advisorCreate: [], // {agent, metadata}
     prompts: [], // {sessionID, text}
@@ -62,6 +79,9 @@ function makeCtx() {
         model: "opencode-go/deepseek-v4.1-flash",
         scope: ["build", "plan"],
         reviewTimeoutMs: 50, // keep the timeout race short in tests
+        // These tests exercise the legacy mid-turn + every-idle behavior;
+        // the idle-complex gating has its own suite (activation.test.mjs).
+        activation: "always",
       },
     },
     // no storage domain: the adapter degrades to the in-memory mirror
@@ -96,11 +116,22 @@ function makeCtx() {
         return { dispose: async () => {} };
       },
     },
+    command: {
+      transform: async (fn) => {
+        fn({
+          add: (c) => {
+            commands.push(c);
+          },
+        });
+        return { dispose: async () => {} };
+      },
+    },
   };
   return {
     ctx,
     hooks,
     tools,
+    commands,
     calls,
     pushEvent: stream.push,
     setContextMessages(list) {

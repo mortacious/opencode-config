@@ -34,10 +34,10 @@ permission:
     "gc *.env*": deny
     "Select-String *.env*": deny
     "findstr *.env*": deny
-  task:
-    "*": deny
-    "explore": allow
-    "research": allow
+  # Delegation runs only through build/plan: subagents cannot spawn
+  # subagents ("task" is the legacy alias of the v2 "subagent" action).
+  task: deny
+  subagent: deny
 ---
 
 You are the DESIGN agent in a Fusion team. You own frontend implementation - turning a design intent into working, good-looking UI. You edit files and can run the dev/build tooling.

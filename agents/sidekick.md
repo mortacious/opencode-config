@@ -33,10 +33,11 @@ permission:
     "gc *.env*": deny
     "Select-String *.env*": deny
     "findstr *.env*": deny
-  task:
-    "*": deny
-    "explore": allow
-    "research": allow
+  # Delegation runs only through build/plan: subagents cannot spawn
+  # subagents. "task" is the legacy alias of the v2 "subagent" action
+  # (normalized at load); the explicit v2 "subagent" deny is belt and braces.
+  task: deny
+  subagent: deny
 ---
 
 You are the SIDEKICK in a two-agent setup (pattern: Devin Fusion). The main agent owns the plan, ambiguity calls, and final review. You own execution.

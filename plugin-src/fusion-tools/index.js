@@ -1,15 +1,30 @@
-// fusion-tools: advisor module (Phase 1).
+// fusion-tools plugin package.
 //
-// A peer-reviewer that watches scoped primary agent sessions (currently
-// build/plan), renders redacted deltas of their transcript, runs them through
-// a second "advisor" agent on its own session, and routes the advisor's
-// `advise` tool calls back into the primary as advisory notes with
-// severity-based delivery.
+// Three modules share this entrypoint:
+//
+// advisor (Phase 1): a peer-reviewer that watches scoped primary agent
+// sessions (currently build/plan), renders redacted deltas of their
+// transcript, runs them through a second "advisor" agent on its own session,
+// and routes the advisor's `advise` tool calls back into the primary as
+// advisory notes with severity-based delivery.
+//
+// fanout (Phase 2): a `fanout` tool that splits a job across parallel worker
+// sessions, each isolated in its own git worktree, with schema-validated
+// results reported back via the workers' `submit_result` tool. Orchestration
+// lives in lib/fanout.js; worktrees are retained for the parent to integrate.
+//
+// steer: a `/steer` command that forwards a short message to the most
+// recently created still-running subagent of the calling session (children
+// are tracked from session.created events via parentID; see lib/steer.js).
+// It registers whenever the plugin loads, independent of advisor.enabled.
 //
 // Config lives in opencode.jsonc plugins entry options: ctx.options.advisor =
 // {enabled, model?, scope?, maxNotesPerUpdate?, reviewTimeoutMs?,
-// maxDeltaChars?}. State lives in ctx.storage under "fusion-tools/advisor/"
-// with an in-memory fallback. Structured logging goes to
+// maxDeltaChars?, activation?, minStepsTurn?, minTurnDeltaChars?,
+// failurePauseMs?} and ctx.options.fanout = {enabled?, maxConcurrency?,
+// defaultAgent?, defaultTimeoutMs?, worktreeBase?}. State lives in
+// ctx.storage under "fusion-tools/advisor/" and "fusion-tools/fanout/" with
+// an in-memory fallback. Structured logging goes to
 // ${HOME}/.local/state/opencode/fusion-tools.log (see lib/log.js).
 
 import { Plugin } from "@opencode/plugin";
@@ -38,10 +53,13 @@ import {
   ACK_BUDGET,
   ACK_NO_SESSION,
 } from "./lib/routing.js";
+import { createFanoutModule } from "./lib/fanout.js";
+import { createSteerModule } from "./lib/steer.js";
 
 const STORAGE_PREFIX = "fusion-tools/advisor/";
 const CURSOR_PREFIX = STORAGE_PREFIX + "cursor/";
 const SESSION_PREFIX = STORAGE_PREFIX + "session/";
+const OVERRIDE_PREFIX = STORAGE_PREFIX + "override/";
 
 const ACK_BY_REASON = {
   noise: ACK_NOISE,
@@ -109,9 +127,41 @@ export default Plugin.define({
       maxNotesPerUpdate: num(raw.maxNotesPerUpdate, 4),
       reviewTimeoutMs: num(raw.reviewTimeoutMs, 120000),
       maxDeltaChars: num(raw.maxDeltaChars, 30000),
+      // Review activation: "always" = current behavior (mid-turn + idle
+      // reviews); "idle-complex" (default) = no mid-turn reviews, idle
+      // reviews only for substantial turns; "off" = no review triggers at
+      // all (advise tool + /advisor command still registered).
+      activation:
+        raw.activation === "always" || raw.activation === "off"
+          ? raw.activation
+          : "idle-complex",
+      minStepsTurn: num(raw.minStepsTurn, 8),
+      minTurnDeltaChars: num(raw.minTurnDeltaChars, 8000),
+      failurePauseMs: num(raw.failurePauseMs, 900000),
     };
 
     const storage = createStorageAdapter(ctx.storage);
+
+    // ---------------- fanout config (Phase 2) ----------------
+    // enabled defaults to TRUE when the fanout options object exists (the
+    // Phase-0 config entry carries fanout: {maxConcurrency: 8}); a missing
+    // fanout object means the module is off.
+    const rawFanout = ctx.options && ctx.options.fanout ? ctx.options.fanout : null;
+    const fanoutCfg = rawFanout
+      ? {
+          enabled: rawFanout.enabled === undefined ? true : rawFanout.enabled === true,
+          maxConcurrency: num(rawFanout.maxConcurrency, 8),
+          defaultAgent:
+            typeof rawFanout.defaultAgent === "string" && rawFanout.defaultAgent.trim()
+              ? rawFanout.defaultAgent.trim()
+              : "worker",
+          defaultTimeoutMs: num(rawFanout.defaultTimeoutMs, 600000),
+          worktreeBase:
+            typeof rawFanout.worktreeBase === "string" && rawFanout.worktreeBase.trim()
+              ? rawFanout.worktreeBase
+              : null,
+        }
+      : null;
 
     // state (one plugin generation's live bookkeeping)
     const state = {
@@ -123,6 +173,12 @@ export default Plugin.define({
       primary: new Map(), // primarySessionID -> per-primary state
       activeAdvisorRuns: new Set(), // advisor session ids with a review in flight
       registrations: [],
+      // activation gating (Part B): per-session /advisor overrides and the
+      // global review circuit breaker
+      override: new Map(), // primarySessionID -> "on" | "off"
+      pausedUntil: 0, // epoch ms; 0 = breaker armed
+      failureStreak: 0, // consecutive advisor review failures
+      totalReviews: 0, // completed advisor reviews across all primaries
     };
 
     log({
@@ -135,13 +191,68 @@ export default Plugin.define({
       maxNotesPerUpdate: cfg.maxNotesPerUpdate,
       reviewTimeoutMs: cfg.reviewTimeoutMs,
       maxDeltaChars: cfg.maxDeltaChars,
+      activation: cfg.activation,
+      minStepsTurn: cfg.minStepsTurn,
+      minTurnDeltaChars: cfg.minTurnDeltaChars,
+      failurePauseMs: cfg.failurePauseMs,
     });
+
+    // ---------------- steer module (always registered) ----------------
+    // Independent of advisor.enabled: registers whenever the plugin loads.
+    const steer = createSteerModule({ ctx });
+    try {
+      const regSteer = await ctx.command.transform((editor) => {
+        editor.add(steer.command);
+      });
+      if (regSteer) state.registrations.push(regSteer);
+      log({ module: "steer", level: "info", msg: "steer registered" });
+    } catch (err) {
+      log({
+        module: "steer",
+        level: "error",
+        msg: "steer command registration failed",
+        error: String(err && err.stack ? err.stack : err),
+      });
+    }
+
+    // ---------------- fanout module (Phase 2; own gate) ----------------
+    // Independent of advisor.enabled: fanout has its own options.fanout
+    // enabled flag and must stay registered when the advisor is disabled.
+    let fanoutModule = null;
+    if (!fanoutCfg || !fanoutCfg.enabled) {
+      log({ module: "fanout", level: "info", msg: "fanout disabled; registering nothing" });
+    } else {
+      try {
+        fanoutModule = createFanoutModule({ ctx, cfg: fanoutCfg, storage, shared: state });
+        const regFanout = await ctx.tool.transform((editor) => {
+          editor.add(fanoutModule.tools.fanout);
+          editor.add(fanoutModule.tools.submitResult);
+        });
+        if (regFanout) state.registrations.push(regFanout);
+        log({
+          module: "fanout",
+          level: "info",
+          msg: "fanout registered",
+          registrations: state.registrations.length,
+          maxConcurrency: fanoutCfg.maxConcurrency,
+          defaultAgent: fanoutCfg.defaultAgent,
+          defaultTimeoutMs: fanoutCfg.defaultTimeoutMs,
+          worktreeBase: fanoutModule.config.worktreeBase,
+        });
+        await fanoutModule.orphanSweep();
+      } catch (err) {
+        log({
+          module: "fanout",
+          level: "error",
+          msg: "fanout registration failed",
+          error: String(err && err.stack ? err.stack : err),
+        });
+        fanoutModule = null;
+      }
+    }
 
     if (!cfg.enabled) {
       log({ module: "advisor", level: "info", msg: "advisor disabled; registering nothing" });
-      return async () => {
-        log({ module: "advisor", level: "info", msg: "unloaded" });
-      };
     }
 
     function getPrimaryPrimary(sessionID) {
@@ -154,10 +265,168 @@ export default Plugin.define({
           agent: null, // last in-scope agent observed by the context hook
           queue: [],
           guard: createGuardState(cfg.maxNotesPerUpdate),
+          // per-turn metrics (Part B): reset at each session.idle boundary
+          turn: { steps: 0, deltaChars: 0 },
+          reviews: 0, // completed advisor reviews for this primary
+          lastReviewAt: null, // ISO timestamp of the last completed review
         };
         state.primary.set(sessionID, p);
       }
       return p;
+    }
+
+    function resetTurn(p) {
+      p.turn.steps = 0;
+      p.turn.deltaChars = 0;
+    }
+
+    // ---------------- activation gating (Part B) ----------------
+    // Effective mode for one primary: the /advisor override wins, otherwise
+    // the global activation config. "forced-on" maps to the "always"
+    // behavior for that session (mid-turn reviews + every idle turn,
+    // thresholds bypassed); "forced-off" suppresses everything for it.
+    function effectiveMode(sessionID) {
+      const ovr = state.override.get(sessionID);
+      if (ovr === "on") return "always";
+      if (ovr === "off") return "forced-off";
+      return cfg.activation;
+    }
+
+    // Circuit breaker: 3 consecutive advisor review failures (prompt/wait
+    // errors of any kind, e.g. insufficient funds) pause ALL reviews for
+    // cfg.failurePauseMs. A success resets the counter. While paused,
+    // triggers skip with one log line.
+    function breakerExpired() {
+      if (state.pausedUntil > 0 && Date.now() >= state.pausedUntil) {
+        state.pausedUntil = 0;
+        state.failureStreak = 0;
+        log({
+          module: "advisor",
+          level: "info",
+          msg: "advisor breaker pause expired (re-armed)",
+        });
+      }
+    }
+
+    function breakerPaused() {
+      breakerExpired();
+      return state.pausedUntil > 0;
+    }
+
+    function breakerFailure(err) {
+      if (state.pausedUntil > 0) return; // already tripped
+      state.failureStreak += 1;
+      if (state.failureStreak >= 3) {
+        state.pausedUntil = Date.now() + cfg.failurePauseMs;
+        log({
+          module: "advisor",
+          level: "warn",
+          msg: "advisor breaker tripped (reviews paused)",
+          failures: state.failureStreak,
+          pausedUntil: new Date(state.pausedUntil).toISOString(),
+          lastError: String(err).slice(0, 200),
+        });
+      }
+    }
+
+    function breakerSuccess() {
+      if (state.failureStreak !== 0 || state.pausedUntil !== 0) {
+        log({
+          module: "advisor",
+          level: "info",
+          msg: "advisor breaker reset (review succeeded)",
+          previousFailures: state.failureStreak,
+        });
+      }
+      state.failureStreak = 0;
+      state.pausedUntil = 0;
+    }
+
+    // Advance the review cursor to "now" (the newest transcript message) so
+    // the next real review does not re-read a turn that was skipped.
+    async function advanceCursorToNow(primarySessionID) {
+      try {
+        const messages = await ctx.session.context({ sessionID: primarySessionID });
+        const list = Array.isArray(messages) ? messages : [];
+        const last = list.length > 0 ? list[list.length - 1] : null;
+        const id = last && last.id ? last.id : null;
+        if (id) {
+          await storage.setJSON(CURSOR_PREFIX + primarySessionID, { lastMessageID: id });
+        }
+      } catch (err) {
+        log({
+          module: "advisor",
+          level: "warn",
+          msg: "cursor advance failed",
+          primarySessionID,
+          error: String(err),
+        });
+      }
+    }
+
+    // /advisor command feedback: synthetic aside with fusionTools metadata
+    // (the render self-filter drops those from reviews).
+    async function commandFeedback(sessionID, text) {
+      try {
+        await ctx.session.synthetic({
+          sessionID,
+          text,
+          description: "advisor command",
+          metadata: { fusionTools: "advisor-note" },
+          resume: false,
+        });
+      } catch (err) {
+        log({
+          module: "advisor",
+          level: "warn",
+          msg: "advisor command feedback failed",
+          sessionID: sessionID || null,
+          error: String(err),
+        });
+      }
+    }
+
+    function advisorStatusText(sessionID) {
+      breakerExpired();
+      const p = state.primary.get(sessionID);
+      const ovr = state.override.get(sessionID);
+      const paused = state.pausedUntil > 0;
+      const lines = [];
+      lines.push("advisor status:");
+      lines.push(
+        "- activation: " +
+          cfg.activation +
+          (ovr ? " (session override: " + ovr + ")" : " (no session override)"),
+      );
+      if (cfg.activation === "off") {
+        lines.push("- reviews are globally disabled (advisor.activation = off)");
+        if (ovr === "on") {
+          lines.push("- note: the session override cannot enable reviews while activation is off");
+        }
+      }
+      lines.push(
+        "- this session: " +
+          (p ? p.reviews : 0) +
+          " completed review(s)" +
+          (p && p.lastReviewAt ? ", last at " + p.lastReviewAt : ""),
+      );
+      lines.push("- total completed reviews: " + state.totalReviews);
+      lines.push(
+        "- breaker: " +
+          (paused
+            ? "PAUSED until " + new Date(state.pausedUntil).toISOString()
+            : "armed") +
+          " (consecutive failures " +
+          state.failureStreak +
+          "/3)",
+      );
+      lines.push(
+        "- idle-complex thresholds: turnSteps >= " +
+          cfg.minStepsTurn +
+          " OR turnDeltaChars >= " +
+          cfg.minTurnDeltaChars,
+      );
+      return lines.join("\n");
     }
 
     function isFusionToolsAgent(agent) {
@@ -331,10 +600,16 @@ export default Plugin.define({
         // advisor session (one per primary, lazy)
         advisorSessionID = state.primaryToAdvisor.get(primarySessionID);
         if (!advisorSessionID) {
-          const created = await ctx.session.create({
-            agent: "advisor",
-            metadata: { fusionTools: "advisor", primarySessionID },
-          });
+          let created;
+          try {
+            created = await ctx.session.create({
+              agent: "advisor",
+              metadata: { fusionTools: "advisor", primarySessionID },
+            });
+          } catch (createErr) {
+            breakerFailure(createErr);
+            throw createErr;
+          }
           advisorSessionID = created && created.id;
           if (!advisorSessionID) throw new Error("advisor session create returned no id");
           state.ownCreated.add(advisorSessionID);
@@ -361,6 +636,7 @@ export default Plugin.define({
             text: delta,
           });
         } catch (promptErr) {
+          breakerFailure(promptErr);
           if (advisorSessionID) {
             // stale advisor session: drop the mapping so the next review
             // creates a fresh advisor session.
@@ -393,6 +669,9 @@ export default Plugin.define({
           .wait({ sessionID: advisorSessionID })
           .then(() => "done")
           .catch((err) => {
+            // prompt/wait errors of any kind (e.g. provider.quota) feed the
+            // circuit breaker; the review counts as failed.
+            breakerFailure(err);
             log({
               module: "advisor",
               level: "error",
@@ -400,7 +679,7 @@ export default Plugin.define({
               advisorSessionID,
               error: String(err),
             });
-            return "done";
+            return "wait-error";
           });
 
         const outcome = await Promise.race([
@@ -427,7 +706,20 @@ export default Plugin.define({
             primarySessionID,
             timeoutMs: cfg.reviewTimeoutMs,
           });
+        } else if (outcome === "wait-error") {
+          log({
+            module: "advisor",
+            level: "warn",
+            msg: "advisor review ended with wait error",
+            advisorSessionID,
+            primarySessionID,
+            failureStreak: state.failureStreak,
+          });
         } else {
+          breakerSuccess();
+          p.reviews += 1;
+          p.lastReviewAt = new Date().toISOString();
+          state.totalReviews += 1;
           log({
             module: "advisor",
             level: "info",
@@ -468,24 +760,85 @@ export default Plugin.define({
     }
 
     // ---------------- context hook (A1) ----------------
+    // Registered when the advisor is enabled OR fanout is enabled (the hook
+    // also shapes fusion-agent session tools for the fanout module and
+    // enforces the build/plan-only fanout restriction).
     const contextHook = (input) => {
       try {
         const agent = input && input.agent;
         const sessionID = input && input.sessionID;
-        if (isFusionToolsAgent(agent)) return;
-        if (sessionID && state.ownCreated.has(sessionID)) return;
+        // Recursion gate: fusion-tools agents AND any plugin-created session
+        // (advisor sessions in ownCreated; fanout workers via the
+        // cross-generation worker registry) never see the fanout tool. The
+        // sessionID checks catch sessions whose agent name is not
+        // fusion-tools-shaped.
+        const pluginSession =
+          isFusionToolsAgent(agent) ||
+          (sessionID ? state.ownCreated.has(sessionID) : false) ||
+          (fanoutModule && sessionID ? fanoutModule.hasWorkerRecord(sessionID) : false);
+        if (pluginSession) {
+          // Hide the fanout tool; inject submit_result for fanout workers
+          // (the session tools record is the seam where plugin tools become
+          // direct tools for a session).
+          if (fanoutModule) fanoutModule.shapeSessionTools(input, agent);
+          return;
+        }
+        // Orchestrator-only fanout (user decision: delegation runs only
+        // through the orchestrator primaries): the fanout tool is deleted
+        // for every agent that is NOT build or plan (in addition to the
+        // fusion-tools-agent and plugin-created-sessionID conditions
+        // above). Only fanout is stripped here - submit_result injection
+        // stays exclusive to the fusion-agent path above.
+        if (
+          agent !== "build" &&
+          agent !== "plan" &&
+          input &&
+          input.tools &&
+          input.tools.fanout
+        ) {
+          delete input.tools.fanout;
+        }
         if (!agent || !cfg.scope.includes(agent)) return;
         if (!cfg.enabled) return;
         const p = getPrimaryPrimary(sessionID);
         p.busy = true;
         p.agent = agent;
+        // Per-turn metrics (Part B): every provider step adds one step and
+        // the outbound request payload size as the delta-char estimate.
+        // Recorded in every mode; consumed by the idle-complex gating.
+        p.turn.steps += 1;
+        try {
+          p.turn.deltaChars += JSON.stringify(
+            input && Array.isArray(input.messages) ? input.messages : [],
+          ).length;
+        } catch {
+          // metrics are best-effort; never block the hook
+        }
         log({
           module: "advisor",
           level: "info",
           msg: "context hook (primary turn)",
           primarySessionID: sessionID,
           agent,
+          turnSteps: p.turn.steps,
+          turnDeltaChars: p.turn.deltaChars,
         });
+        // Mid-turn reviews only in "always" mode (or a forced-on session,
+        // which effectiveMode maps to "always"). idle-complex reviews at the
+        // idle boundary only; "off"/"forced-off" never review. A global
+        // activation "off" kills all triggers, overrides included.
+        if (cfg.activation === "off") return;
+        if (effectiveMode(sessionID) !== "always") return;
+        if (breakerPaused()) {
+          log({
+            module: "advisor",
+            level: "warn",
+            msg: "advisor reviews paused (breaker); review skipped",
+            primarySessionID: sessionID,
+            pausedUntil: new Date(state.pausedUntil).toISOString(),
+          });
+          return;
+        }
         // fire-and-forget with its own catch: the hook must return
         // synchronously and never throw.
         void (async () => {
@@ -512,10 +865,14 @@ export default Plugin.define({
     };
 
     // ---------------- event subscription (A2) ----------------
+    // One subscription dispatches every event to the steer tracker (always)
+    // and to the advisor idle handling (only when the advisor is enabled).
     async function handleEvent(event) {
       if (state.closing) return; // shutdown: stop processing events
       try {
         if (!event || typeof event.type !== "string") return;
+        steer.handleEvent(event);
+        if (!cfg.enabled) return; // advisor idle handling off
         if (event.type === "session.idle") {
           const sessionID = event.data && event.data.sessionID;
           if (!sessionID) return;
@@ -538,11 +895,60 @@ export default Plugin.define({
           // ones already recorded in per-primary state: state exists solely
           // through the context hook's full gate (agent in scope, not an
           // advisor/worker session, enabled) and own-created sessions are
-          // gated there too. Re-verify the two state-dependent gates, then
-          // go through the SAME review pipeline (its per-primary mutex
-          // coalesces a concurrent review into one pending pass).
-          if (state.ownCreated.has(sessionID)) return; // self-review guard
+          // gated there too.
+          if (state.ownCreated.has(sessionID)) {
+            resetTurn(p);
+            return; // self-review guard
+          }
           if (!p.agent || !cfg.scope.includes(p.agent)) return;
+
+          // Activation gating (Part B). The turn's metrics are consumed at
+          // this boundary regardless of the outcome.
+          const turnSteps = p.turn.steps;
+          const turnDeltaChars = p.turn.deltaChars;
+          resetTurn(p);
+          const mode = effectiveMode(sessionID);
+          if (cfg.activation === "off" || mode === "forced-off") {
+            if (mode === "forced-off") {
+              log({
+                module: "advisor",
+                level: "info",
+                msg: "idle review suppressed (session override off)",
+                primarySessionID: sessionID,
+              });
+            }
+            return; // reviews disabled for this session (or globally)
+          }
+          if (breakerPaused()) {
+            log({
+              module: "advisor",
+              level: "warn",
+              msg: "advisor reviews paused (breaker); review skipped",
+              primarySessionID: sessionID,
+              pausedUntil: new Date(state.pausedUntil).toISOString(),
+            });
+            return;
+          }
+          if (mode === "idle-complex") {
+            // Only substantial turns earn a review; small ones advance the
+            // cursor so their content is not re-read by the next real review.
+            const substantial =
+              turnSteps >= cfg.minStepsTurn || turnDeltaChars >= cfg.minTurnDeltaChars;
+            if (!substantial) {
+              await advanceCursorToNow(sessionID);
+              log({
+                module: "advisor",
+                level: "info",
+                msg: "idle review skipped (below threshold)",
+                primarySessionID: sessionID,
+                turnSteps,
+                turnDeltaChars,
+                minStepsTurn: cfg.minStepsTurn,
+                minTurnDeltaChars: cfg.minTurnDeltaChars,
+              });
+              return;
+            }
+          }
           void (async () => {
             try {
               await reviewPrimary(sessionID);
@@ -596,6 +1002,132 @@ export default Plugin.define({
       }
     })();
 
+    // ---------------- /advisor command (Part B) ----------------
+    // Per-session override: "on" forces reviews for the session (thresholds
+    // bypassed, activation mode ignored), "off" suppresses all reviews for
+    // it. Persisted best-effort under fusion-tools/advisor/override/.
+    async function setOverride(sessionID, value) {
+      if (!sessionID) return;
+      if (value) {
+        state.override.set(sessionID, value);
+        try {
+          await storage.setJSON(OVERRIDE_PREFIX + sessionID, { override: value });
+        } catch (err) {
+          log({
+            module: "advisor",
+            level: "warn",
+            msg: "override persistence failed (memory only)",
+            sessionID,
+            error: String(err),
+          });
+        }
+      } else {
+        state.override.delete(sessionID);
+        try {
+          await storage.removeJSON(OVERRIDE_PREFIX + sessionID);
+        } catch (err) {
+          log({
+            module: "advisor",
+            level: "warn",
+            msg: "override removal failed (memory only)",
+            sessionID,
+            error: String(err),
+          });
+        }
+      }
+    }
+
+    const advisorCommand = {
+      name: "advisor",
+      description: "Advisor reviews for this session: /advisor on | off | status",
+      execute: async (input) => {
+        try {
+          const sessionID = input && input.sessionID;
+          const rawText =
+            input && input.prompt && typeof input.prompt.text === "string"
+              ? input.prompt.text
+              : "";
+          // Accept both the bare args ("on") and the full line ("/advisor on").
+          const arg = String(rawText)
+            .trim()
+            .replace(/^\/advisor\b/i, "")
+            .trim()
+            .split(/\s+/)[0]
+            .toLowerCase();
+          if (arg === "on") {
+            await setOverride(sessionID, "on");
+            await commandFeedback(
+              sessionID,
+              "advisor: reviews forced ON for this session (every idle turn, thresholds bypassed).",
+            );
+          } else if (arg === "off") {
+            await setOverride(sessionID, "off");
+            await commandFeedback(
+              sessionID,
+              "advisor: reviews suppressed for this session.",
+            );
+          } else if (arg === "status") {
+            await commandFeedback(sessionID, advisorStatusText(sessionID));
+          } else {
+            await commandFeedback(
+              sessionID,
+              "advisor: unknown argument" +
+                (arg ? " \"" + arg + "\"" : "") +
+                ". Usage: /advisor on | off | status",
+            );
+          }
+        } catch (err) {
+          log({
+            module: "advisor",
+            level: "error",
+            msg: "advisor command failed",
+            error: String(err && err.stack ? err.stack : err),
+          });
+        }
+      },
+    };
+
+    // ---------------- rehydrate from storage (hot-reload safety) ----------------
+    // Advisor-only: skipped entirely when the advisor is disabled.
+    if (cfg.enabled) {
+      try {
+        const stored = await storage.scanPrefix(STORAGE_PREFIX);
+        for (const [key, value] of stored) {
+          if (!key.startsWith(SESSION_PREFIX)) continue;
+          const primarySessionID = key.slice(SESSION_PREFIX.length);
+          const advisorSessionID =
+            value && typeof value === "object" ? value.advisorSessionID : null;
+          if (!advisorSessionID || !primarySessionID) continue;
+          state.primaryToAdvisor.set(primarySessionID, advisorSessionID);
+          state.advisorToPrimary.set(advisorSessionID, primarySessionID);
+          state.ownCreated.add(advisorSessionID);
+        }
+        // Part B: restore /advisor per-session overrides ("on" | "off").
+        for (const [key, value] of stored) {
+          if (!key.startsWith(OVERRIDE_PREFIX)) continue;
+          const primarySessionID = key.slice(OVERRIDE_PREFIX.length);
+          const override = value && typeof value === "object" ? value.override : null;
+          if (!primarySessionID || (override !== "on" && override !== "off")) continue;
+          state.override.set(primarySessionID, override);
+        }
+        if (stored.size > 0) {
+          log({
+            module: "advisor",
+            level: "info",
+            msg: "rehydrated advisor mappings from storage",
+            sessions: stored.size,
+            overrides: state.override.size,
+          });
+        }
+      } catch (err) {
+        log({
+          module: "advisor",
+          level: "warn",
+          msg: "storage rehydrate failed (memory only)",
+          error: String(err),
+        });
+      }
+    }
     // ---------------- advise tool (A8, A9, A12) ----------------
     const adviseTool = {
       name: "advise",
@@ -675,68 +1207,59 @@ export default Plugin.define({
       },
     };
 
-    // ---------------- rehydrate from storage (hot-reload safety) ----------------
-    try {
-      const stored = await storage.scanPrefix(STORAGE_PREFIX);
-      for (const [key, value] of stored) {
-        if (!key.startsWith(SESSION_PREFIX)) continue;
-        const primarySessionID = key.slice(SESSION_PREFIX.length);
-        const advisorSessionID =
-          value && typeof value === "object" ? value.advisorSessionID : null;
-        if (!advisorSessionID || !primarySessionID) continue;
-        state.primaryToAdvisor.set(primarySessionID, advisorSessionID);
-        state.advisorToPrimary.set(advisorSessionID, primarySessionID);
-        state.ownCreated.add(advisorSessionID);
-      }
-      if (stored.size > 0) {
+    // ---------------- registrations ----------------
+    // The advise tool and /advisor command are advisor-only; the context
+    // hook also shapes fanout session tools, so it registers whenever the
+    // advisor OR the fanout module is active.
+    if (cfg.enabled) {
+      try {
+        const regTools = await ctx.tool.transform((editor) => {
+          editor.add(adviseTool);
+        });
+        if (regTools) state.registrations.push(regTools);
+      } catch (err) {
         log({
           module: "advisor",
-          level: "info",
-          msg: "rehydrated advisor mappings from storage",
-          sessions: stored.size,
+          level: "error",
+          msg: "advise tool registration failed",
+          error: String(err),
         });
       }
-    } catch (err) {
+    }
+    if (cfg.enabled || fanoutModule) {
+      try {
+        const regHook = await ctx.session.hook("context", contextHook);
+        if (regHook) state.registrations.push(regHook);
+      } catch (err) {
+        log({
+          module: cfg.enabled ? "advisor" : "fanout",
+          level: "error",
+          msg: "context hook registration failed",
+          error: String(err),
+        });
+      }
+    }
+    if (cfg.enabled) {
+      try {
+        const regCmd = await ctx.command.transform((editor) => {
+          editor.add(advisorCommand);
+        });
+        if (regCmd) state.registrations.push(regCmd);
+      } catch (err) {
+        log({
+          module: "advisor",
+          level: "error",
+          msg: "advisor command registration failed",
+          error: String(err),
+        });
+      }
       log({
         module: "advisor",
-        level: "warn",
-        msg: "storage rehydrate failed (memory only)",
-        error: String(err),
+        level: "info",
+        msg: "advisor registered",
+        registrations: state.registrations.length,
       });
     }
-
-    // ---------------- registrations ----------------
-    try {
-      const regTools = await ctx.tool.transform((editor) => {
-        editor.add(adviseTool);
-      });
-      if (regTools) state.registrations.push(regTools);
-    } catch (err) {
-      log({
-        module: "advisor",
-        level: "error",
-        msg: "advise tool registration failed",
-        error: String(err),
-      });
-    }
-    try {
-      const regHook = await ctx.session.hook("context", contextHook);
-      if (regHook) state.registrations.push(regHook);
-    } catch (err) {
-      log({
-        module: "advisor",
-        level: "error",
-        msg: "context hook registration failed",
-        error: String(err),
-      });
-    }
-
-    log({
-      module: "advisor",
-      level: "info",
-      msg: "advisor registered",
-      registrations: state.registrations.length,
-    });
 
     let unloaded = false;
     return async () => {
@@ -764,6 +1287,16 @@ export default Plugin.define({
       state.advisorToPrimary.clear();
       state.ownCreated.clear();
       state.primary.clear();
+      state.override.clear();
+      // fanout teardown (Phase 2): interrupt in-flight workers, free records
+      if (fanoutModule) {
+        try {
+          await fanoutModule.cleanup();
+        } catch {
+          // ignore
+        }
+        fanoutModule = null;
+      }
       // close the event subscription iterator (idempotent: the while loop
       // already exits via state.closing, and a second return() is a no-op)
       try {

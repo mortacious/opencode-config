@@ -25,6 +25,20 @@
           "defaultAgent": "worker"
         }
       }
+    },
+    {
+      "package": "./plugin-src/lumo-supervisor",
+      "options": {
+        "checkoutDir": "~/.config/opencode/lumo-tamer"
+      }
+    },
+    {
+      "package": "./plugin-src/profile-switcher",
+      "options": {
+        "modelFallbacks": {
+          "lumo-tamer/lumo-max": "Amenable Thor 1/qwen38-flash-next"
+        }
+      }
     }
   ],
   // lsp: dropped in v2 port - not a documented v2 top-level key
@@ -95,7 +109,7 @@
       "model": "opencode-go/deepseek-v4.1-flash"
     },
     "sidekick": {
-      "model": "opencode-go/mimo-v2.6-flash"
+      "model": "opencode-go/deepseek-v4.1-flash"
     },
     "explore": {
       "model": "opencode-go/deepseek-v4.1-flash"

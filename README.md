@@ -21,6 +21,11 @@ Personal opencode configuration. Managed as a private git repo for deployment ac
 7. `install.sh` creates empty placeholder files in `secrets/` for the research-API keys. Paste each key into its file (just the key, no `var=` prefix or quotes): `secrets/semantic_scholar_api_key` (optional, https://www.semanticscholar.org/product/api) and `secrets/github_personal_access_token` (recommended, https://github.com/settings/tokens). No shell sourcing needed - opencode reads these files directly at startup.
 8. Export `NEURALWATT_API_KEY` in your shell (e.g. add to `~/.bashrc` or `~/.zshrc`).
 9. Start opencode. It will resolve `@tarquinen/opencode-dcp` (listed in `opencode.jsonc`) on first run; the local plugin package `plugin-src/fusion-audit` is also listed there and its dependencies are installed by `./install.sh`.
+10. The local plugin package `plugin-src/profile-switcher` (also listed in `opencode.jsonc`) is installed by `./install.sh` and provides in-session profile switching: `/profile` in the TUI plus a `Profile:` sidebar indicator, hot-swapping agent models without a service restart. It shares the `.active-profile` state file with `bin/oc`, so `oc profile switch` and an in-session `/profile` switch stay in sync.
+
+### lumo-tamer
+
+`install.sh` provisions a vendored checkout of [lumo-tamer](https://github.com/ZeroTricks/lumo-tamer) (third-party, GPLv3) into `./lumo-tamer/`, which is gitignored along with its `config.yaml`: it clones the repo if missing, runs `npm install && npm run build:all` if `dist/src/tamer.js` is missing, generates a two-line `config.yaml` with a fresh `server.apiKey` if none exists (an existing key is never regenerated or overwritten), and mirrors that key to `secrets/lumo_api_key` (mode 600) if that file is missing. So the key lives in exactly two places: `lumo-tamer/config.yaml` inside the gitignored checkout, and `secrets/lumo_api_key`. Re-running `./install.sh` once provisioned changes nothing. One-time interactive auth is still required: `cd lumo-tamer && node dist/src/tamer.js auth` - the `login` method needs Go, while the `browser` and `rclone` methods are documented in `lumo-tamer/docs/authentication.md`.
 
 ## What lives where
 

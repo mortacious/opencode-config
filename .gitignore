@@ -14,3 +14,6 @@ secrets/
 
 # opencode v2 runtime state (contains server password)
 service.json
+
+# vendored third-party checkout (lumo-tamer) - carries config.yaml with server apiKey
+lumo-tamer/

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  // build/plan are the orchestrator trial pins (per user request); sparring joins them on lumo.
+  "agents": {
+    "build": { "model": "lumo-tamer/lumo-max" },
+    "plan": { "model": "lumo-tamer/lumo-max" },
+    "sparring": { "model": "lumo-tamer/lumo-max" },
+    "reviewer": { "model": "Amenable Thor 1/qwen38-flash-next" },
+    "sidekick": { "model": "Amenable Thor 1/qwen38-flash-next" },
+    "explore": { "model": "Amenable Thor 1/qwen38-flash-next" },
+    "research": { "model": "Amenable Thor 1/qwen38-flash-next" },
+    "advisor": { "model": "Amenable Thor 1/qwen38-flash-next" },
+    "worker": { "model": "Amenable Thor 1/qwen38-flash-next" },
+    "design": { "model": "Amenable Thor 1/qwen38-flash-next" },
+    "vision": { "model": "Amenable Thor 1/qwen38-flash-next" },
+    "title": { "model": "Amenable Thor 1/qwen38-flash-next" }
+  }
+}

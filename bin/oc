@@ -128,11 +128,14 @@ PROFILE_EOF
   fi
 
   if [ -n "$model" ]; then
-    # Rewrite: every agent.*.model + small_model -> new id; strip agent variants.
+    # Rewrite: every agents.*.model (v2; falls back to agent.* on v1 overlays)
+    # + small_model -> new id; strip agent variants.
     # jq parses strict JSON only, so drop full-line // comments (jsonc) first.
     sed -E 's|^[[:space:]]*//.*$||' "$overlay" > "$overlay.tmp"
     jq --arg model "$model" '
-      (if .agent then .agent |= with_entries(.value |= (del(.variant) | .model = $model)) else . end)
+      (if .agents then .agents |= with_entries(.value |= (del(.variant) | .model = $model))
+       elif .agent then .agent |= with_entries(.value |= (del(.variant) | .model = $model))
+       else . end)
       | .small_model = $model
     ' "$overlay.tmp" > "$overlay"
     rm -f "$overlay.tmp"

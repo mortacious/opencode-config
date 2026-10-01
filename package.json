@@ -8,5 +8,8 @@
   },
   "allowScripts": {
     "msgpackr-extract@3.0.4": true
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
   }
 }

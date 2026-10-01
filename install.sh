@@ -27,6 +27,61 @@ fi
 mkdir -p "$BIN_DIR"
 mkdir -p "$SECRETS_DIR"
 
+# --- lumo-tamer (vendored third-party checkout; gitignored) ---
+# Cloned from https://github.com/ZeroTricks/lumo-tamer.git into ./lumo-tamer/.
+# The whole dir is gitignored: it carries its own node_modules/dist plus a
+# config.yaml holding a machine-local server apiKey (mirrored to
+# secrets/lumo_api_key). An existing config.yaml or key file is NEVER
+# regenerated or overwritten. Idempotent: every step below is skip-if-present.
+LUMO_DIR="$CONFIG_DIR/lumo-tamer"
+if [ ! -d "$LUMO_DIR" ]; then
+  echo "Cloning lumo-tamer into $LUMO_DIR ..."
+  if ! git clone https://github.com/ZeroTricks/lumo-tamer.git "$LUMO_DIR"; then
+    echo "WARNING: failed to clone lumo-tamer; skipping its provisioning." >&2
+  fi
+fi
+if [ -d "$LUMO_DIR" ] && [ ! -f "$LUMO_DIR/dist/src/tamer.js" ]; then
+  # No node_modules/.bin link for the server: it runs as
+  # `node dist/src/tamer.js server` from the checkout dir.
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "WARNING: npm is not on PATH; cannot build lumo-tamer (dist/src/tamer.js missing)." >&2
+  else
+    echo "Building lumo-tamer (npm install + npm run build:all) ..."
+    if ! ( cd "$LUMO_DIR" && npm install --no-audit --no-fund && npm run build:all ); then
+      echo "WARNING: lumo-tamer build failed; retry manually: (cd lumo-tamer && npm install && npm run build:all)." >&2
+    else
+      echo "OK: lumo-tamer built ($LUMO_DIR/dist/src/tamer.js)."
+    fi
+  fi
+fi
+if [ -d "$LUMO_DIR" ] && [ ! -f "$LUMO_DIR/config.yaml" ]; then
+  if ! command -v openssl >/dev/null 2>&1; then
+    echo "WARNING: openssl is not on PATH; cannot generate lumo-tamer config.yaml." >&2
+  else
+    echo "Generating lumo-tamer config.yaml with a fresh server apiKey ..."
+    lumo_key="$(openssl rand -hex 32)"
+    printf 'server:\n  apiKey: "%s"\n' "$lumo_key" > "$LUMO_DIR/config.yaml"
+    unset lumo_key
+    echo "OK: created $LUMO_DIR/config.yaml (key not echoed)."
+  fi
+fi
+if [ -f "$LUMO_DIR/config.yaml" ] && [ ! -f "$SECRETS_DIR/lumo_api_key" ]; then
+  # Mirror the apiKey into secrets/ for {file:} consumers. Extract quietly and
+  # never echo key bytes.
+  lumo_key="$(sed -n 's/^[[:space:]]*apiKey: "\(.*\)"$/\1/p' "$LUMO_DIR/config.yaml")"
+  lumo_key="${lumo_key%%$'\n'*}"
+  if [ -z "$lumo_key" ]; then
+    echo "WARNING: could not extract apiKey from $LUMO_DIR/config.yaml; not writing $SECRETS_DIR/lumo_api_key." >&2
+  else
+    printf '%s' "$lumo_key" > "$SECRETS_DIR/lumo_api_key"
+    chmod 600 "$SECRETS_DIR/lumo_api_key"
+    unset lumo_key
+    echo "OK: wrote $SECRETS_DIR/lumo_api_key (mode 600, key not echoed)."
+  fi
+fi
+echo "NOTE: lumo-tamer needs a one-time interactive auth: (cd lumo-tamer && node dist/src/tamer.js auth)."
+echo "  The 'login' method needs Go (it builds a Go binary); the 'browser' and 'rclone' methods are documented in lumo-tamer/docs/authentication.md."
+
 # --- github-mcp-server (official GitHub MCP; used by sparring + research) ---
 # Self-contained: the binary lives in ./bin/. opencode.jsonc references it via
 # {env:HOME}/.config/opencode/bin/github-mcp-server (opencode expands {env:HOME}).
@@ -193,6 +248,30 @@ if ! ( cd "$CONFIG_DIR/plugin-src/fusion-tools" && npm install --no-audit --no-f
   echo "WARNING: failed to install fusion-tools plugin deps; the plugin will not load." >&2
 else
   echo "OK: fusion-tools plugin deps installed."
+fi
+
+# --- lumo-supervisor plugin package (plugin-src/lumo-supervisor) ---
+# Registered in opencode.jsonc "plugins" as "./plugin-src/lumo-supervisor". It
+# is a local plugin package with its own dependency (@opencode/plugin),
+# resolved from its own node_modules - so it needs its own install step here.
+echo "Installing lumo-supervisor plugin deps (plugin-src/lumo-supervisor)..."
+if ! ( cd "$CONFIG_DIR/plugin-src/lumo-supervisor" && npm install --no-audit --no-fund ); then
+  echo "WARNING: failed to install lumo-supervisor plugin deps; the plugin will not load." >&2
+else
+  echo "OK: lumo-supervisor plugin deps installed."
+fi
+
+# --- profile-switcher plugin package (plugin-src/profile-switcher) ---
+# Registered in opencode.jsonc "plugins" as an object entry with options:
+# { "package": "./plugin-src/profile-switcher", options: {...} }. It is a
+# local plugin package with its own dependencies (@opencode/plugin plus the
+# OpenTUI/solid peers for its ./tui entry), resolved from its own
+# node_modules - so it needs its own install step here.
+echo "Installing profile-switcher plugin deps (plugin-src/profile-switcher)..."
+if ! ( cd "$CONFIG_DIR/plugin-src/profile-switcher" && npm install --no-audit --no-fund ); then
+  echo "WARNING: failed to install profile-switcher plugin deps; the plugin will not load." >&2
+else
+  echo "OK: profile-switcher plugin deps installed."
 fi
 
 # --- opencode plugins ---

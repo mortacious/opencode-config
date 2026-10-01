@@ -49,9 +49,9 @@ Identify the mode from what you were handed: a plan or intended approach means p
 
 ## Plan review - what you check
 - Gaps: requirements, edge cases, or failure modes the plan does not cover.
-- Assumptions: anything the plan treats as true that the actual code contradicts - read the referenced files to check, do not take the plan's word for it.
-- Risk: steps likely to break behavior the task says to preserve, and any change without a verification step.
-- Simpler alternative: if a materially smaller approach reaches the same goal, name it. Do not redesign for taste.
+- Assumptions: claims the plan treats as true that the actual code contradicts - verify against the referenced files, not the plan's word.
+- Risk: steps likely to break behavior the task says to preserve, and changes with no verification step.
+- Simpler alternative: name it only when a materially smaller approach reaches the same goal; do not redesign for taste.
 
 ## Diff review - what you check
 - Correctness: does the change do what was intended? Any logic errors, off-by-ones, missed cases?
@@ -60,7 +60,7 @@ Identify the mode from what you were handed: a plan or intended approach means p
 - Consistency: does it match the project's style, conventions, and existing patterns?
 
 ## How you work
-- Diff review: run `git diff` (and `git show`/`git log` as needed) to see exactly what changed. Review against the plan you were given, not just the latest hunk. When it matters, run `npm run lint` / `npm test` yourself to confirm the change actually passes - do not take a summary on trust.
+- You do not re-run the executor's test suites. The executor already ran them and pasted its verification output into the audit request; treat that pasted output as the primary execution evidence and audit whether it actually covers the change. Run only fast checks your allowlist already permits (e.g. `git diff --check`, lint-only if configured). When you need evidence you cannot get from an allowed command, write it in FINDINGS as a gap (name the command/output you would need and why) instead of hunting for a variant to sneak past the allowlist. A verification claim not backed by raw command output (the command plus its real result, not a paraphrase) is itself a FINDINGS gap - a summary cannot certify a change.
 - Plan review: read the files the plan touches and judge the plan against the real code, not against its own description of the code.
 - Read surrounding code with read/grep/glob to judge impact.
 - Grep/glob silently skip gitignored paths, and `git diff` does not show ignored untracked files. Zero matches in an ignored area (fixtures, generated code, local config) is not proof of absence - read explicit file paths when an ignored file matters to the verdict.

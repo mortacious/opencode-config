@@ -44,7 +44,8 @@ When editing agent definitions, preserve this separation: primaries must stay un
 
 All model selection for the agents defined here lives in `opencode.jsonc` `agent.*`; profile overlays may swap those values. Three agent files pin `model:` in frontmatter as self-contained overrides (`explore.md`, `advisor.md`, `worker.md`); config `agents.*` model pins and profile overlays take precedence over them. No other `agents/*.md` frontmatter sets `model` or `variant` - the only other model-related frontmatter key is `sparring`'s `temperature: 0.4`.
 
-- `build`, `plan`, `sidekick`, `worker`: `opencode-go/glm-5.3-flash` (no variant).
+- `build`, `plan`, `worker`: `opencode-go/glm-5.3-flash` (no variant).
+- `sidekick`: `opencode-go/mimo-v2.6-flash` (experiment for speed; revert to glm-5.3-flash if edit quality regresses).
 - `advisor`, `sparring`, `reviewer`, `explore`, `research`: `opencode-go/deepseek-v4.1-flash` (no variant).
 - `design` and `vision`: `opencode-go/gpt-5.6-luna` - vision-capable, since design handles UI/screenshots.
 - `small_model`: `opencode-go/mimo-v2.6-flash`.

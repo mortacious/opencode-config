@@ -95,7 +95,7 @@
       "model": "opencode-go/deepseek-v4.1-flash"
     },
     "sidekick": {
-      "model": "opencode-go/glm-5.3-flash"
+      "model": "opencode-go/mimo-v2.6-flash"
     },
     "explore": {
       "model": "opencode-go/deepseek-v4.1-flash"

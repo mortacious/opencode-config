@@ -32,7 +32,7 @@ Two `mode: primary` agents (`build`, `plan`) own planning, ambiguity calls, and 
 Subagents (`mode: subagent`):
 - `sidekick` - mechanical execution. Full `edit` + `bash`, but cannot `git commit`/`push` (direct and common wrapper forms are denied). Default executor for code changes.
 - `design` - frontend/UI. `edit` + `bash` allowed, `external_directory` denied.
-- `reviewer` - plan/diff critique. `edit` denied; read-only git + lint/test + `plan-review`/`reflect` skills.
+- `reviewer` - plan/diff critique. `edit` denied; read-only git + lint/test + `plan-review`/`reflect` skills; may delegate read-only lookups to `explore`.
 - `research` - read-only research. `webfetch`/`websearch` plus the research-API MCP servers (`semantic-scholar`, `arxiv`, `github`, `dblp`, `sourcegraph`) and `context7`; may delegate onward to `explore`.
 - `explore` - read-only. `webfetch`/`websearch` allowed.
 - `sparring` - scientific critic. Read-only (no `edit`/`bash`/`task`): `webfetch`, `websearch`, `date`, plus the research-API MCP servers (`semantic-scholar`, `arxiv`, `github`, `dblp`, `sourcegraph`) and `context7` for library-docs verification.

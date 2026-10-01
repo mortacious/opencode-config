@@ -16,6 +16,7 @@ Cut typical task wall time by trimming mandated overhead without weakening corre
 - Sidekick model swap + AGENTS.md doc sync: done (opencode.jsonc, AGENTS.md).
 - Audit round 2 fixes (small-change risk gate, raw-output evidence standard, AGENTS.md sync, plan.md claim fix, ledger fold-back): done; reviewer re-audit passed with two nits (fixed here).
 - Sidekick scope hard-stop + claim-accuracy bullets (agents/sidekick.md): done.
+- Reviewer effectiveness restore: explore delegation + conditional test-run rule (npm/pytest) (agents/reviewer.md, AGENTS.md): done; audit fix - dropped the subagent-deny sibling (v1 task-map shape) and tightened retest trigger (b) with 'and the pasted output does not already establish it'.
 
 ## Open issues
 - Sidekick model swap quality unproven until the next real task; revert on regression.

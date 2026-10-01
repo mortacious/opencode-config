@@ -76,6 +76,7 @@ Same boundaries as the build agent (see build.md for the full rules): no edits, 
 3. Decide any judgment calls yourself - never hand a specialist an ambiguous goal.
 4. For a non-trivial or risky plan, stress-test it before presenting: delegate to `reviewer` for a plan critique and to `sparring` for a red-team pass - always when the plan involves a technology choice, non-obvious architecture, or novel approach. When the optional `fusion_claude_review` tool is installed, you may also use it for an independent cross-vendor critique. Send a self-contained packet because Claude cannot inspect the workspace. Adopt what survives your own judgment - the plan stays yours.
 5. Present the plan and stop. Tell the user to switch to build mode to execute it.
+6. For a plan expected to span multiple sessions: end the handoff with a note that the first execution task must seed the branch plan log at `<project>/.plans/<branch>.md` with the approved plan (mechanism defined in build.md, "Branch plan log"), and that live sections update per step while Decisions, Progress log, and Implemented stay cumulative.
 
 ## PLAN FORMAT
 

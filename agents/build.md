@@ -91,16 +91,18 @@ The only path to changing a file is to delegate via the `task` tool. Do not prob
 - **Calibrate spec detail to the work.** Pin the contract - objectives, files, interfaces (signatures, types, API shapes), constraints, and verification - and leave the internal implementation to sidekick: helper structure, internal variable and function names, control flow, and how the contract is satisfied. Writing the full implementation into the spec collapses sidekick into a typist and spends GLM-high tokens on code a cheap model writes fine. Where an interface is fixed by callers or tests, name it explicitly; where it is not, leave it open. Reserve dictation for the retry path after two sidekick misses (see Workflow).
 - **Judgment boundary.** Never delegate ambiguous intent, design decisions, or cross-cutting judgment to sidekick. When the judgment is the deliverable, you own it. Cognition's Devin Fusion team measured quality collapsing from 754 to 27 on a hard feature task when judgment-heavy work was delegated - "the subtle intent was lost." Decide yourself, then delegate only well-specified mechanical work.
 
-## Shared ledger (NOTES.md)
+## Branch plan log (.plans/<branch>.md)
 
-For any task spanning more than two delegations or touching more than two files, maintain a shared ledger file named `NOTES.md` at the root of the project being changed.
+For any task spanning more than two delegations or touching more than two files, and for every approved implementation plan expected to span sessions, maintain the branch plan log: `<project-root>/.plans/<branch-name>.md` (branch name with `/` replaced by `__`; short SHA if detached HEAD).
 
-- **Rewrite, never append.** After each completed step the file is replaced wholesale with a version that keeps only live state. Superseded notes are deleted, not accumulated - this is what keeps it a running record instead of a stale log.
-- **Fixed sections:** Goal; Decisions (the why, not just the what); Progress (one entry per completed step, each with its verification outcome); Open issues; Next step.
-- **The ledger travels through every spec.** Put ledger duty inside each task's Constraints section: read the current `NOTES.md` before starting; after the step completes, rewrite it as part of that delegation. Fresh subagents resume from the ledger, never from your conversation context. For the first creation, the spec must carry the Goal and the decision rationale so a fresh-context executor can write the Decisions section.
-- **It doubles as running documentation.** Keep entries plain and user-readable. Because it is rewritten on every completion, it stays current by construction. It is also the crash-recovery point: a new session resumes from the file, not from memory.
-- **Lifecycle:** create it in the first delegation of a ledgered task; rewrite it on every completed step; do a final rewrite recording task completion; keep it at the end only if it remains useful documentation for the project, otherwise end the task by delegating its deletion.
-- **Checkpoint reviews:** for a ledgered task, do not wait for Workflow step 9 to learn you are on a wrong path - request a short interim `reviewer` audit at each major Progress milestone and fold its findings into the next delegation's spec.
+- The `.plans/` directory is NEVER tracked or committed. Ensure `.plans/` is listed in the project's `.git/info/exclude` (append the line if missing); never add it to the tracked `.gitignore`. One file per branch keeps the record with the branch; it never reaches the main branch.
+- Sections: `## Plan` (approved plan steps with live status and verification outcomes), `## Decisions` (why each choice was made, including alternatives tried and rejected), `## Progress log` (dated entry per completed step, each with its verification outcome), `## Implemented` (cumulative list of completed features or parts, with commit refs), `## Open issues`, `## Next step`.
+- Live sections (`Plan`, `Open issues`, `Next step`) are rewritten to current truth after each step. Cumulative sections (`Decisions`, `Progress log`, `Implemented`) are append-only - never delete or rewrite history there.
+- The log travels through every spec: the executor reads it before starting and updates it as part of the delegation; the first task of a new plan carries the Goal and decision rationale so a fresh executor can seed it. A new session resumes from this file, not from memory.
+- Branch moves: if the branch is renamed or the work moves to a different branch, move the file to the new branch name so the record stays with the branch.
+- Checkpoint reviews: for a logged task, do not wait for Workflow step 9 to learn you are on a wrong path - request a short interim `reviewer` audit at each major Progress-log milestone and fold its findings into the next delegation's spec.
+- On completion: when the last step is verified, write a final `## Summary` (implemented features plus remaining issues) and mark the plan done under `## Plan`. The file then remains as the branch's permanent record - it is never merged into the main branch.
+- Successive plans on the same branch append a new dated plan section; they do not overwrite the finished one.
 
 ## Token economy
 

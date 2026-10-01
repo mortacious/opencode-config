@@ -54,6 +54,39 @@ if [ -d "$LUMO_DIR" ] && [ ! -f "$LUMO_DIR/dist/src/tamer.js" ]; then
     fi
   fi
 fi
+if [ -d "$LUMO_DIR" ] && [ ! -f "$LUMO_DIR/dist/proton-auth" ]; then
+  # The credential 'login' auth method needs a Go helper (dist/proton-auth).
+  # Attempt it whenever a Go toolchain is reachable; otherwise just note that
+  # 'login' is unavailable (the 'browser' and 'rclone' methods do not need Go).
+  # Idempotent: skipped entirely once dist/proton-auth exists.
+  if [ ! -d "$LUMO_DIR" ]; then
+    : # lumo-tamer absent; nothing to build
+  elif ! command -v npm >/dev/null 2>&1; then
+    echo "NOTE: npm not on PATH; cannot build the credential-login helper ($LUMO_DIR/dist/proton-auth)." >&2
+  else
+    lumo_go=""
+    if command -v go >/dev/null 2>&1; then
+      lumo_go="$(command -v go)"
+    elif [ -x "$HOME/tools/go/bin/go" ]; then
+      lumo_go="$HOME/tools/go/bin/go"
+    fi
+    if [ -z "$lumo_go" ]; then
+      echo "NOTE: Go not found; lumo-tamer credential 'login' auth needs Go." >&2
+      echo "  'browser' and 'rclone' auth still work without it. To enable login later:" >&2
+      echo "  (cd $LUMO_DIR && npm run build:login) after installing Go." >&2
+    else
+      echo "Building lumo-tamer credential-login helper with Go ($lumo_go) ..."
+      if ! ( cd "$LUMO_DIR" && PATH="$(dirname "$lumo_go"):$PATH" npm run build:login ); then
+        echo "WARNING: lumo-tamer build:login failed; credential 'login' auth will not work." >&2
+        echo "  Retry manually: (cd lumo-tamer && npm run build:login)." >&2
+      elif [ -x "$LUMO_DIR/dist/proton-auth" ]; then
+        echo "OK: lumo-tamer credential-login helper built ($LUMO_DIR/dist/proton-auth)."
+      else
+        echo "WARNING: build:login did not produce $LUMO_DIR/dist/proton-auth; 'login' auth will not work." >&2
+      fi
+    fi
+  fi
+fi
 if [ -d "$LUMO_DIR" ] && [ ! -f "$LUMO_DIR/config.yaml" ]; then
   if ! command -v openssl >/dev/null 2>&1; then
     echo "WARNING: openssl is not on PATH; cannot generate lumo-tamer config.yaml." >&2

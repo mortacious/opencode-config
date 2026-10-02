@@ -11,14 +11,59 @@
 // exposes the same data through ctx.event / ctx.tool instead of v1's hook names).
 
 import { Plugin } from "@opencode/plugin";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import path from "node:path";
+
+// Sink file, mirroring fusion-tools' private JSONL logger: Promise plugins in
+// v2 cannot reach the opencode log file (upstream anomalyco/opencode#27285),
+// so this file is the observable record. Best-effort: never throws, creates
+// the parent directory on demand.
+const SINK_FILE = path.join(homedir(), ".local", "state", "opencode", "fusion-audit.log");
+let sinkDirReady = null; // last directory successfully created
+
+// Appends one JSON line to the sink; any I/O failure is swallowed so a log
+// write can never throw into a plugin hook. Mirrors fusion-tools/lib/log.js.
+const appendSink = (record) => {
+  let line;
+  try {
+    line = JSON.stringify(record) + "\n";
+  } catch {
+    // cyclic/non-serializable record: do not throw over logging
+    return;
+  }
+  try {
+    appendFileSync(SINK_FILE, line);
+    return;
+  } catch {
+    // fall through to the dir-creation retry
+  }
+  const dir = path.dirname(SINK_FILE);
+  if (sinkDirReady !== dir) {
+    try {
+      mkdirSync(dir, { recursive: true });
+      sinkDirReady = dir;
+    } catch {
+      // best-effort only
+    }
+  }
+  try {
+    appendFileSync(SINK_FILE, line);
+  } catch {
+    // still failing - give up silently
+  }
+};
 
 export default Plugin.define({
   id: "fusion-audit",
   async setup(ctx) {
     // v2 port: client.app.log equivalent not found in @opencode/plugin typings
     // - logging routed to console
-    const log = (message, extra) =>
-      console.log(JSON.stringify({ service: "fusion-audit", level: "info", message, extra }));
+    const log = (message, extra) => {
+      const record = { service: "fusion-audit", level: "info", message, extra };
+      console.log(JSON.stringify(record));
+      appendSink(record);
+    };
     const messagesBySession = new Map();
 
     // Drain every server event and dispatch it the same way the v1

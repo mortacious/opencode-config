@@ -202,6 +202,16 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
             cost: info?.cost,
             modelRef: info?.model,
           });
+          if (totalTokens(prior?.tokens) !== totalTokens(info?.tokens)) {
+            console.info(
+              "[subagent-view.tui] live " +
+                JSON.stringify({
+                  sessionID: child.id,
+                  tokens: totalTokens(info?.tokens),
+                  cost: info?.cost,
+                })
+            );
+          }
         } catch {
           // Keep the previous live entry for this child if we had one; the
           // store fallback covers the rest.
@@ -318,8 +328,8 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
     const model = resolveModel(context, liveEntry?.modelRef ?? info.model);
     const parts = [
       (running ? "* " : "  ") + agent,
-      model.label,
       usageText(liveEntry?.tokens ?? info.tokens, model.contextLimit),
+      model.label,
       costText(liveEntry?.cost ?? info.cost),
     ];
     return { text: truncate(parts.join("  "), 72), running };
@@ -350,31 +360,34 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
         <Show when={children().length <= 2 || view.open}>
           <For each={visible()}>
             {(info) => {
-              const line = lineFor(info);
+              const row = createMemo(() => lineFor(info));
               return (
-                <text
-                  fg={
-                    line.running
-                      ? context.theme.text.base
-                      : context.theme.text.muted
-                  }
+                <box
                   onMouseDown={() => {
                     try {
                       if (context.ui.tabs.enabled()) {
-                        context.ui.tabs.focus(info.id);
-                      } else {
-                        context.ui.router.navigate({
-                          type: "session",
-                          sessionID: info.id,
-                        });
+                        const opened = context.ui.tabs.focus(info.id);
+                        if (opened) return;
                       }
+                      context.ui.router.navigate({
+                        type: "session",
+                        sessionID: info.id,
+                      });
                     } catch {
                       // best-effort navigation
                     }
                   }}
                 >
-                  {line.text}
-                </text>
+                  <text
+                    fg={
+                      row().running
+                        ? context.theme.text.base
+                        : context.theme.text.muted
+                    }
+                  >
+                    {row().text}
+                  </text>
+                </box>
               );
             }}
           </For>

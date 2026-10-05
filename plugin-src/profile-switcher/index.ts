@@ -73,6 +73,7 @@ import { Model, Plugin } from "@opencode/plugin";
 import { readProfileFile, type ProfileModelEntry } from "./parse.js";
 import {
   Profile,
+  type ProfileAgentModelEntry,
   type ProfileAppliedEntry,
   type ProfileListEntry,
   type ProfilePopulateInput,
@@ -581,6 +582,47 @@ export default Plugin.define({
       return name === "default" ? new Map(baseModels) : resolvedMap;
     }
 
+    // Effective per-agent model map for the sidebar, as { agent, model } rows
+    // sorted by agent. baseModels underlies BOTH branches because the transform
+    // only overrides the agents present in captured - every other agent keeps
+    // its base-config model - so the base map is the floor for the full
+    // picture. With captured entries (the transform-applied state, including
+    // after an in-session switch in a formerly launch-suppressed instance) the
+    // captured entries win on top of baseModels. While captured is empty (the
+    // launch-suppressed initial state, where no transform ran because the base
+    // config already carries the overlay) the RAW overlay entries are overlaid
+    // on baseModels in file order - the same precedence the config deep-merge
+    // used at launch; an unreadable overlay yields baseModels alone. Never
+    // throws; returns whatever was computable (empty array as last resort).
+    function currentAgentModels(): ProfileAgentModelEntry[] {
+      try {
+        const map = new Map<string, string>();
+        for (const [agent, ref] of baseModels) map.set(agent, ref);
+        if (captured.size > 0) {
+          for (const [agent, ref] of captured) map.set(agent, ref);
+        } else {
+          try {
+            const parsed = readProfileFile(
+              join(profilesDir, activeName, "opencode.jsonc")
+            );
+            for (const entry of parsed.entries) {
+              map.set(entry.agent, entry.ref);
+            }
+          } catch {
+            // Overlay unreadable: base models alone.
+          }
+        }
+        const entries: ProfileAgentModelEntry[] = [];
+        for (const [agent, model] of map) entries.push({ agent, model });
+        entries.sort((a, b) =>
+          a.agent < b.agent ? -1 : a.agent > b.agent ? 1 : 0
+        );
+        return entries;
+      } catch {
+        return [];
+      }
+    }
+
     let cleanedUp = false;
     let emitChanged: ((active: string) => Promise<void>) | undefined;
     let disposeRpc: (() => Promise<void>) | undefined;
@@ -1007,7 +1049,10 @@ export default Plugin.define({
         profiles.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
         return { active: activeName, profiles };
       },
-      current: async () => ({ active: activeName }),
+      current: async () => ({
+        active: activeName,
+        agents: currentAgentModels(),
+      }),
       set: async (input, context) => {
         const name = (input as { name?: unknown } | undefined)?.name;
         if (typeof name !== "string" || !isSafeProfileName(name)) {
@@ -1139,7 +1184,10 @@ export default Plugin.define({
       },
     });
     emitChanged = async (active: string) => {
-      await rpcRegistration.events.emit("changed", { active });
+      await rpcRegistration.events.emit("changed", {
+        active,
+        agents: currentAgentModels(),
+      });
     };
     disposeRpc = () => rpcRegistration.dispose();
 

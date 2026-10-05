@@ -22,12 +22,13 @@
 //
 // All files ASCII only.
 
-import { createSignal, onMount } from "solid-js";
+import { createSignal, For, onMount, Show } from "solid-js";
 
 import { Plugin } from "@opencode/plugin/tui";
 
 import {
   Profile,
+  type ProfileAgentModelEntry,
   type ProfileChangedEvent,
   type ProfileCurrentResult,
   type ProfileListResult,
@@ -45,6 +46,13 @@ function degrade(what: string, err: unknown): void {
   console.warn(
     "[profile-switcher.tui] " + what + " unavailable: " + errorText(err)
   );
+}
+
+// Graceful single-line truncation (mirrors subagent-view.tui).
+function truncate(value: string, max: number): string {
+  if (value.length <= max) return value;
+  if (max <= 3) return value.slice(0, max);
+  return value.slice(0, max - 3) + "...";
 }
 
 // Structured ModelRef -> the normalized "providerID/id#variant" ref string the
@@ -92,6 +100,7 @@ export default Plugin.define({
     let keymapRegistered = false;
 
     const [active, setActive] = createSignal("default");
+    const [agents, setAgents] = createSignal<ProfileAgentModelEntry[]>([]);
 
     const rpc = context.client.rpc(Profile);
 
@@ -222,6 +231,7 @@ export default Plugin.define({
     try {
       const current = (await rpc.current({})) as ProfileCurrentResult;
       setActive(current.active);
+      setAgents(current.agents ?? []);
     } catch (err) {
       context.ui.toast.show({
         message:
@@ -237,6 +247,9 @@ export default Plugin.define({
           | Readonly<Record<string, unknown>>;
         if (data && typeof data.active === "string") {
           setActive(data.active);
+        }
+        if (data && Array.isArray(data.agents)) {
+          setAgents(data.agents as ProfileAgentModelEntry[]);
         }
       });
       disposers.push(unsubscribe);
@@ -334,12 +347,60 @@ export default Plugin.define({
       degrade("keymap bootstrap slot", err);
     }
 
+    // Collapsible sidebar section: header "Profile: <active> (n)" with an
+    // arrow, and (when expanded) one muted "<agent>  <model>" row per agent.
+    // Storage key "sidebar", default collapsed, durable. With no known agents
+    // it degrades to the original static "Profile: <active>" line.
+    function ProfileSection() {
+      const [view, updateView] = context.storage.store("sidebar", {
+        initial: { open: false },
+      });
+      return (
+        <Show
+          when={agents().length > 0}
+          fallback={
+            <text fg={context.theme.text.base}>Profile: {active()}</text>
+          }
+        >
+          <box>
+            <box
+              flexDirection="row"
+              gap={1}
+              onMouseDown={() => {
+                try {
+                  void updateView((draft) => {
+                    draft.open = !draft.open;
+                  });
+                } catch {
+                  // toggle is best-effort: never break the sidebar
+                }
+              }}
+            >
+              <text fg={context.theme.text.base}>
+                {view.open ? "\u25bc" : "\u25b6"}
+              </text>
+              <text fg={context.theme.text.base}>
+                <b>{"Profile: " + active() + " (" + agents().length + ")"}</b>
+              </text>
+            </box>
+            <Show when={view.open}>
+              <For each={agents()}>
+                {(entry) => (
+                  <text fg={context.theme.text.muted}>
+                    {truncate("  " + entry.agent + "  " + entry.model, 72)}
+                  </text>
+                )}
+              </For>
+            </Show>
+          </box>
+        </Show>
+      );
+    }
+
     try {
       const removeSlot = context.ui.slot({
         append: "sidebar.content",
-        render: () => (
-          <text fg={context.theme.text.base}>Profile: {active()}</text>
-        ),
+        render: () => <ProfileSection />,
       });
       disposers.push(removeSlot);
     } catch (err) {

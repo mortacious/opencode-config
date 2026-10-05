@@ -20,8 +20,14 @@ export interface ProfileListResult {
   profiles: ProfileListEntry[];
 }
 
+export interface ProfileAgentModelEntry {
+  agent: string;
+  model: string;
+}
+
 export interface ProfileCurrentResult {
   active: string;
+  agents?: ProfileAgentModelEntry[];
 }
 
 export interface ProfileAppliedEntry {
@@ -38,6 +44,7 @@ export interface ProfileSetResult {
 
 export interface ProfileChangedEvent {
   active: string;
+  agents?: ProfileAgentModelEntry[];
 }
 
 export interface ProfilePopulateSession {
@@ -99,8 +106,20 @@ export const Profile = Rpc.define({
         type: "object",
         properties: {
           active: { type: "string" },
+          agents: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                agent: { type: "string" },
+                model: { type: "string" },
+              },
+              required: ["agent", "model"],
+              additionalProperties: false,
+            },
+          },
         },
-        required: ["active"],
+        required: ["active", "agents"],
         additionalProperties: false,
       },
     },
@@ -189,6 +208,18 @@ export const Profile = Rpc.define({
         type: "object",
         properties: {
           active: { type: "string" },
+          agents: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                agent: { type: "string" },
+                model: { type: "string" },
+              },
+              required: ["agent", "model"],
+              additionalProperties: false,
+            },
+          },
         },
         required: ["active"],
         additionalProperties: false,

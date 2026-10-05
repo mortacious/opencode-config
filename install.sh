@@ -307,6 +307,18 @@ else
   echo "OK: profile-switcher plugin deps installed."
 fi
 
+# --- subagent-view plugin package (plugin-src/subagent-view) ---
+# Registered in opencode.jsonc "plugins" as "./plugin-src/subagent-view". It is
+# a local plugin package with its own dependencies (@opencode/plugin plus the
+# OpenTUI/solid peers for its ./tui entry), resolved from its own node_modules -
+# so it needs its own install step here.
+echo "Installing subagent-view plugin deps (plugin-src/subagent-view)..."
+if ! ( cd "$CONFIG_DIR/plugin-src/subagent-view" && npm install --no-audit --no-fund ); then
+  echo "WARNING: failed to install subagent-view plugin deps; the plugin will not load." >&2
+else
+  echo "OK: subagent-view plugin deps installed."
+fi
+
 # --- opencode plugins ---
 # Note: the npm-listed plugin in opencode.jsonc "plugins" array
 # (@tarquinen/opencode-dcp) is resolved by opencode itself on first run - it does

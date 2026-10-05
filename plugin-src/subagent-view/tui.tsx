@@ -364,17 +364,16 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
               return (
                 <box
                   onMouseDown={() => {
+                    // A child/subagent session is not tab-openable (tabs are
+                    // root-session tabs only), so navigation is the only
+                    // correct behavior. Best-effort and silent.
                     try {
-                      if (context.ui.tabs.enabled()) {
-                        const opened = context.ui.tabs.focus(info.id);
-                        if (opened) return;
-                      }
                       context.ui.router.navigate({
                         type: "session",
                         sessionID: info.id,
                       });
                     } catch {
-                      // best-effort navigation
+                      // navigation is best-effort
                     }
                   }}
                 >

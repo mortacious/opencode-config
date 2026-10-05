@@ -785,7 +785,27 @@ export default Plugin.define({
             });
           });
       }
-      const warnings = [...parsed.warnings, ...resolved.warnings];
+      let warnings = [...parsed.warnings, ...resolved.warnings];
+      // The "default" profile is an identity overlay BY DESIGN: parse.ts
+      // emits "<file>: no model settings found; identity applied" for it.
+      // That is not a user-facing condition, so suppress only that exact
+      // variant from both the warn log and the RPC result, keeping evidence
+      // server-side in one info line. The other "identity applied" variants
+      // ("malformed JSON (...)", "file is empty", "not a JSON object") are
+      // genuine failures and stay visible.
+      if (name === "default") {
+        const filtered = warnings.filter(
+          (warning) =>
+            !warning.endsWith("no model settings found; identity applied")
+        );
+        if (filtered.length !== warnings.length) {
+          log("info", "identity profile: parse warning suppressed", {
+            profile: name,
+            count: warnings.length - filtered.length,
+          });
+          warnings = filtered;
+        }
+      }
       for (const warning of warnings) {
         log("warn", warning, { profile: name });
       }

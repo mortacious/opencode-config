@@ -47,6 +47,44 @@ function degrade(what: string, err: unknown): void {
   );
 }
 
+// Structured ModelRef -> the normalized "providerID/id#variant" ref string the
+// server tracker uses; the "default" variant is dropped. Undefined when the
+// ref is missing providerID or id (un-serializable).
+function serializeModel(model: unknown): string | undefined {
+  if (!model || typeof model !== "object") return undefined;
+  const m = model as { providerID?: unknown; id?: unknown; variant?: unknown };
+  if (typeof m.providerID !== "string" || typeof m.id !== "string") {
+    return undefined;
+  }
+  return (
+    m.providerID +
+    "/" +
+    m.id +
+    (typeof m.variant === "string" && m.variant && m.variant !== "default"
+      ? "#" + m.variant
+      : "")
+  );
+}
+
+interface PopulateEntry {
+  sessionID: string;
+  agent?: string;
+  model?: string;
+  parentID?: string;
+  // This TUI's own directory, so the server can route the seed to the plugin
+  // instance that owns the location (RPC routing between instances is not
+  // caller-guaranteed). Absent on tabs-gap entries.
+  location?: string;
+}
+
+interface SessionInfoLike {
+  id?: unknown;
+  agent?: unknown;
+  model?: unknown;
+  parentID?: unknown;
+  time?: { archived?: unknown };
+}
+
 export default Plugin.define({
   id: "profile-switcher.tui",
   async setup(context) {
@@ -56,6 +94,130 @@ export default Plugin.define({
     const [active, setActive] = createSignal("default");
 
     const rpc = context.client.rpc(Profile);
+
+    // Seed the server-side session tracker with sessions that predate this
+    // plugin load (the server plugin has no session.list of its own). Runs
+    // concurrently with the rest of setup; every failure is swallowed so setup
+    // cannot break.
+    async function populateTracker(): Promise<void> {
+      try {
+        const entries: PopulateEntry[] = [];
+        const seen = new Set<string>();
+        const directory = context.location?.directory;
+        if (typeof directory === "string" && directory) {
+          // Authoritative enumeration of this location's sessions: paged
+          // client.session.list({directory}). context.data.session.list() is
+          // NOT used here - it does not reliably contain sessions that predate
+          // the TUI's own event stream.
+          let cursor: string | undefined;
+          let pages = 0;
+          while (entries.length < 200 && pages < 100) {
+            pages++;
+            const res = await context.client.session.list({
+              directory,
+              limit: 50,
+              ...(cursor === undefined ? {} : { cursor }),
+            });
+            const page: SessionInfoLike[] = res?.data ?? [];
+            for (const info of page) {
+              try {
+                const id = info?.id;
+                if (typeof id !== "string" || seen.has(id)) continue;
+                if (info.time?.archived !== undefined) continue;
+                // Children never migrate: excluded from seeding.
+                if (typeof info.parentID === "string" && info.parentID) {
+                  continue;
+                }
+                const model = serializeModel(info.model);
+                if (model === undefined) continue;
+                seen.add(id);
+                const entry: PopulateEntry = {
+                  sessionID: id,
+                  model,
+                  location: directory,
+                };
+                if (typeof info.agent === "string") entry.agent = info.agent;
+                entries.push(entry);
+                if (entries.length >= 200) break;
+              } catch {
+                // skip this entry only
+              }
+            }
+            if (page.length === 0) break;
+            const next = res?.cursor?.next;
+            if (typeof next !== "string" || !next) break;
+            cursor = next;
+          }
+        } else {
+          // No usable location on this context: unchanged fallback to the
+          // reactive data store's best-effort list.
+          let sessions: SessionInfoLike[] = [];
+          try {
+            sessions = context.data.session.list() as SessionInfoLike[];
+          } catch {
+            sessions = [];
+          }
+          for (const info of sessions) {
+            try {
+              const id = info?.id;
+              if (typeof id !== "string" || seen.has(id)) continue;
+              if (info.time?.archived !== undefined) continue;
+              const model = serializeModel(info.model);
+              if (model === undefined) continue;
+              seen.add(id);
+              entries.push({
+                sessionID: id,
+                agent: typeof info.agent === "string" ? info.agent : undefined,
+                model,
+                parentID:
+                  typeof info.parentID === "string"
+                    ? info.parentID
+                    : undefined,
+              });
+            } catch {
+              // skip this entry only
+            }
+          }
+        }
+        // Any open tab not covered by the enumeration above: fetch it once.
+        // These entries carry NO location; the server resolves the owner via a
+        // session.get.
+        let tabs: ReadonlyArray<{ sessionID?: unknown }> = [];
+        try {
+          tabs = context.ui.tabs.list();
+        } catch {
+          tabs = [];
+        }
+        for (const tab of tabs) {
+          try {
+            const id = tab?.sessionID;
+            if (typeof id !== "string" || seen.has(id)) continue;
+            if (entries.length >= 200) break;
+            seen.add(id);
+            const info = (await context.client.session.get({
+              sessionID: id,
+            })) as SessionInfoLike;
+            const model = serializeModel(info?.model);
+            if (model === undefined) continue;
+            entries.push({
+              sessionID: id,
+              agent: typeof info.agent === "string" ? info.agent : undefined,
+              model,
+              parentID:
+                typeof info.parentID === "string" ? info.parentID : undefined,
+            });
+          } catch {
+            // skip fetch failures only
+          }
+        }
+        if (entries.length === 0) return;
+        // The populate input schema caps sessions at 200.
+        await rpc.populate({ sessions: entries.slice(0, 200) });
+      } catch {
+        // populate is best-effort; never break setup
+      }
+    }
+    void populateTracker();
 
     try {
       const current = (await rpc.current({})) as ProfileCurrentResult;

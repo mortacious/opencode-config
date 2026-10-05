@@ -28,7 +28,7 @@ Profiles live under `~/.config/opencode/profiles/<name>/opencode.jsonc` and are 
    - "A new profile with everything on model Y" -> fork from a profile that already enumerates the agents: `oc profile add <new> --clone cheap-local --swap-model "<provider/model>"`. Note: a scratch profile (no `--clone`) has no `agents` block, so `--swap-model` on scratch ONLY sets `small_model` - the base config's `agents.*.model` values then take effect unchanged. The cheap-local profile enumerates 11 agents plus `small_model` (`title`), so forking it (and then swapping) is the way to override every agent.
    - "A new empty profile" -> `oc profile add <new>` (identity overlay; user edits later).
 2. Model id format: `<provider>/<model-key>` where `<model-key>` is the key registered in the `provider.<name>.models` map of `opencode.jsonc`, NOT the display name. For example `Amenable Thor 1/unsloth/Qwen3.8-27B-NVFP4` (provider name + `/` + model key). Using the display name silently falls back to the base config.
-3. After creating, offer to switch: `oc profile switch <new>`. Note that a running opencode session keeps its already-loaded config; the user must restart opencode for the new profile to take effect.
+3. After creating, offer to switch: `oc profile switch <new>` sets the default for future launches. For a running session use the in-session `/profile` command instead: the profile-switcher plugin applies agent models live and migrates open sessions' models to the new profile's targets without a restart. Only the model subset is hot-swappable; any other config change still needs a restart.
 4. For delete/rename: confirm the target with `oc profile list` first when in doubt. Default is protected.
 
 ## Constraints

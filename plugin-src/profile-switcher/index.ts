@@ -75,6 +75,8 @@ import {
   Profile,
   type ProfileAppliedEntry,
   type ProfileListEntry,
+  type ProfilePopulateInput,
+  type ProfilePopulateSession,
   type ProfileSetResult,
 } from "./rpc.js";
 
@@ -269,6 +271,66 @@ function mapsEqual(a: Map<string, string>, b: Map<string, string>): boolean {
   return true;
 }
 
+// Normalize a structured model ref to the canonical "providerID/id#variant"
+// form used throughout this plugin; the "default" variant is dropped (it means
+// "model default", i.e. no variant).
+function normalizeModelRef(ref: {
+  providerID?: unknown;
+  id?: unknown;
+  variant?: unknown;
+} | null | undefined): string | undefined {
+  if (!ref) return undefined;
+  const providerID = ref.providerID;
+  const id = ref.id;
+  if (typeof providerID !== "string" || typeof id !== "string") {
+    return undefined;
+  }
+  const variant = ref.variant;
+  return (
+    providerID +
+    "/" +
+    id +
+    (typeof variant === "string" && variant && variant !== "default"
+      ? "#" + variant
+      : "")
+  );
+}
+
+// Strip the "#variant" suffix from a normalized ref, giving provider/id
+// equality. Used by the migration consent guard so variant-carrying sessions
+// (e.g. a TUI-seeded "provider/id#max") still match a base pin "provider/id".
+function baseModelRef(ref: string): string {
+  return ref.split("#")[0];
+}
+
+// One tracked root session (child sessions are never migrated but are still
+// tracked so agent/model updates are observed).
+interface TrackedSession {
+  agent?: string;
+  model?: string;
+  parentID?: string;
+  running: boolean;
+}
+
+// Tracker bound: exceeding this clears the map (populate re-seeds it).
+const MAX_TRACKED_SESSIONS = 5000;
+
+function eventLocationDirectory(event: unknown): string | undefined {
+  const location = (event as { location?: { directory?: unknown } } | null)
+    ?.location;
+  const directory = location?.directory;
+  if (typeof directory === "string") return directory;
+  // Fallback: the optional top-level location is absent, so read the
+  // payload location instead (non-empty string only).
+  const payloadLocation = (
+    event as { data?: { location?: { directory?: unknown } } } | null
+  )?.data?.location;
+  const payloadDirectory = payloadLocation?.directory;
+  return typeof payloadDirectory === "string" && payloadDirectory
+    ? payloadDirectory
+    : undefined;
+}
+
 export default Plugin.define({
   id: "profile-switcher",
   async setup(ctx) {
@@ -315,12 +377,177 @@ export default Plugin.define({
     // Captured per-agent model map applied by the current transform.
     let captured = new Map<string, string>();
     // Base per-agent model refs captured once BEFORE any profile transform is
-    // registered; "default" restores these explicitly. Best-effort: an
-    // early/partial registry captures fewer entries and the core config-agent
-    // transform still supplies base models for anything not captured here.
+    // registered; "default" restores these explicitly. The base config file
+    // (CONFIG_DIR/opencode.jsonc) is the primary source: a registry read
+    // (ctx.agent.list()) at plugin setup sees the pre-config-pipeline state -
+    // the core config-agent transform has not registered yet, so agents list
+    // with no usable model. The registry is only a fallback for an unreadable
+    // base config.
     const baseModels = new Map<string, string>();
 
+    // ---- session tracker -----------------------------------------------
+    // Root sessions whose persisted model may be rewritten when a profile is
+    // applied. Fed by the single event subscription below and seeded by the
+    // `populate` RPC: the handler broadcasts clean entries through this
+    // plugin's own rpc event, and every instance seeds the entries whose
+    // location equals its own directory (a module-scope registry cannot span
+    // instances - each gets an isolated module copy).
+    const tracked = new Map<string, TrackedSession>();
+    const ownDirectory = ctx.location?.directory;
+    // Serializes migrations so overlapping profile switches cannot interleave
+    // switchModel calls for the same session.
+    let migrationChain: Promise<void> = Promise.resolve();
+
+    function locationMismatch(directory: string | undefined): boolean {
+      // Ignore an event only when it carries a location AND that location
+      // differs from this plugin's own location. No location -> accept.
+      if (!directory) return false;
+      if (!ownDirectory) return false;
+      return directory !== ownDirectory;
+    }
+
+    function enforceTrackerBound(): void {
+      if (tracked.size > MAX_TRACKED_SESSIONS) {
+        log("warn", "session tracker exceeded bound; clearing", {
+          size: tracked.size,
+        });
+        tracked.clear();
+      }
+    }
+
+    // Seed one session into THIS instance's tracker. The populate event
+    // handler calls this only for entries whose location equals this
+    // instance's own directory, so the tracker stays per-location.
+    function seedSession(input: {
+      sessionID: string;
+      agent?: string;
+      model?: string;
+      parentID?: string;
+    }): boolean {
+      if (tracked.has(input.sessionID)) return false;
+      tracked.set(input.sessionID, {
+        agent: input.agent,
+        model: input.model,
+        parentID: input.parentID,
+        running: false,
+      });
+      enforceTrackerBound();
+      return true;
+    }
+
+    // Consume one event into the session tracker. Returns true when the event
+    // type is handled (the caller then skips the provider/model path).
+    function handleSessionEvent(event: {
+      type: string;
+      data?: unknown;
+      location?: { directory?: unknown };
+    }): boolean {
+      const type = event.type;
+      const data = event.data as
+        | {
+            sessionID?: unknown;
+            agent?: unknown;
+            model?: unknown;
+            parentID?: unknown;
+          }
+        | undefined;
+      const sessionID = data?.sessionID;
+      if (typeof sessionID !== "string") {
+        // Handled type but no usable id: swallow rather than fall through.
+        return type.startsWith("session.");
+      }
+      if (locationMismatch(eventLocationDirectory(event))) return true;
+      switch (type) {
+        case "session.created": {
+          tracked.set(sessionID, {
+            agent: typeof data?.agent === "string" ? data.agent : undefined,
+            model: normalizeModelRef(
+              data?.model as
+                | { providerID?: unknown; id?: unknown; variant?: unknown }
+                | null
+                | undefined
+            ),
+            parentID:
+              typeof data?.parentID === "string" ? data.parentID : undefined,
+            running: false,
+          });
+          enforceTrackerBound();
+          return true;
+        }
+        case "session.agent.selected": {
+          const entry = tracked.get(sessionID);
+          if (entry && typeof data?.agent === "string") entry.agent = data.agent;
+          return true;
+        }
+        case "session.model.selected": {
+          const entry = tracked.get(sessionID);
+          if (entry) {
+            const model = normalizeModelRef(
+              data?.model as
+                | { providerID?: unknown; id?: unknown; variant?: unknown }
+                | null
+                | undefined
+            );
+            if (model !== undefined) entry.model = model;
+          }
+          return true;
+        }
+        case "session.deleted": {
+          tracked.delete(sessionID);
+          return true;
+        }
+        case "session.execution.started": {
+          const entry = tracked.get(sessionID);
+          if (entry) entry.running = true;
+          return true;
+        }
+        case "session.execution.succeeded":
+        case "session.execution.failed":
+        case "session.execution.interrupted": {
+          const entry = tracked.get(sessionID);
+          if (entry) entry.running = false;
+          return true;
+        }
+        default:
+          return false;
+      }
+    }
+
+    // Capture the base per-agent model map. Deterministic and independent of
+    // the config-pipeline race: the base config file is parsed directly (the
+    // same parser used for profile overlays), so it does not depend on the
+    // core config-agent transform having registered. The registry read is only
+    // a fallback for an unreadable base config. Idempotent: clears first so a
+    // re-capture never leaves stale entries. Never throws.
     async function captureBaseModels(): Promise<void> {
+      baseModels.clear();
+      // PRIMARY: parse the base config file exactly like a profile overlay.
+      let configEntries: ProfileModelEntry[] | undefined;
+      try {
+        const parsed = readProfileFile(join(CONFIG_DIR, "opencode.jsonc"));
+        // The base config legitimately carries many non-model keys (the
+        // "not hot-swappable" warnings); discard them silently.
+        configEntries = parsed.entries;
+      } catch (err) {
+        log("warn", "failed to read base config; falling back to registry", {
+          error: errorText(err),
+        });
+      }
+      if (configEntries !== undefined) {
+        if (configEntries.length > 0) {
+          for (const entry of configEntries) {
+            baseModels.set(entry.agent, entry.ref);
+          }
+          log("info", "base models captured", {
+            source: "config",
+            count: baseModels.size,
+          });
+          return;
+        }
+        log("warn", "base config yielded no agent model pins");
+      }
+      // FALLBACK: registry read. Best-effort - at setup it may see the
+      // pre-config-pipeline state and capture nothing.
       try {
         const res = await ctx.agent.list();
         for (const agent of res.data) {
@@ -339,6 +566,10 @@ export default Plugin.define({
           error: errorText(err),
         });
       }
+      log("info", "base models captured", {
+        source: "registry",
+        count: baseModels.size,
+      });
     }
 
     // The map a given profile should end up applying: the resolved overlay
@@ -416,19 +647,144 @@ export default Plugin.define({
       return { map, applied, warnings };
     }
 
+    // Session migration: rewrite the persisted model of every tracked root
+    // session whose model matches (at provider/id granularity) the PREVIOUS
+    // profile target for its agent, switching it to the NEW target. Never
+    // throws. Serialized via migrationChain so overlapping switches cannot
+    // interleave.
+    async function migrateSessions(
+      name: string,
+      previous: Map<string, string>,
+      next: Map<string, string>
+    ): Promise<void> {
+      let updated = 0;
+      let skippedRunning = 0;
+      let skippedOffTarget = 0;
+      let failed = 0;
+      let stale = 0;
+      for (const [sessionID, session] of tracked) {
+        try {
+          if (session.parentID) continue; // child sessions: excluded
+          if (session.running) {
+            skippedRunning++;
+            continue;
+          }
+          if (!session.agent || session.model === undefined) {
+            skippedOffTarget++;
+            continue;
+          }
+          const prevRef = previous.get(session.agent);
+          // Consent guard at MODEL granularity (provider/id, "#variant"
+          // stripped): a session carrying a variant default (e.g. seeded by
+          // the TUI as "provider/id#max") still matches the base pin and
+          // migrates. An agent absent from the previous map still means
+          // "leave alone" (never revert); a manual pick of a DIFFERENT model
+          // is honored.
+          if (
+            prevRef === undefined ||
+            baseModelRef(session.model) !== baseModelRef(prevRef)
+          ) {
+            skippedOffTarget++;
+            continue;
+          }
+          const nextRef = next.get(session.agent);
+          if (nextRef === undefined) {
+            skippedOffTarget++;
+            continue;
+          }
+          // Already at the target: no write. EXACT equality, so a variant-
+          // carrying session that only matches the target's base is rewritten
+          // to the full profile ref once.
+          if (session.model === nextRef) continue;
+          try {
+            await ctx.session.switchModel({
+              sessionID,
+              model: Model.Ref.parse(nextRef),
+            });
+            // Reflect the new model immediately in the tracker instead of
+            // relying solely on the async session.model.selected echo.
+            session.model = nextRef;
+            updated++;
+          } catch (err) {
+            // Stale = the session no longer exists. Confirm via a get; any
+            // 404/not-found-style outcome lands in stale, not failed.
+            let exists = true;
+            try {
+              await ctx.session.get({ sessionID });
+            } catch {
+              exists = false;
+            }
+            if (!exists) {
+              stale++;
+              tracked.delete(sessionID);
+            } else {
+              failed++;
+              log("warn", "session model migration failed", {
+                profile: name,
+                sessionID,
+                error: errorText(err),
+              });
+            }
+          }
+        } catch (err) {
+          failed++;
+          log("warn", "session migration entry failed", {
+            profile: name,
+            sessionID,
+            error: errorText(err),
+          });
+        }
+      }
+      log("info", "sessions migrated", {
+        profile: name,
+        ...(ownDirectory ? { location: ownDirectory } : {}),
+        updated,
+        skippedRunning,
+        skippedOffTarget,
+        failed,
+        stale,
+      });
+    }
+
     // The full apply sequence: refresh availability, read+parse the overlay,
     // resolve, update the captured map, re-register the agent transform,
     // write .active-profile, emit "changed". Never throws.
     async function applyProfile(
       name: string,
-      opts: { persist: boolean; emit: boolean }
+      opts: { persist: boolean; emit: boolean; migrate?: boolean }
     ): Promise<ProfileSetResult> {
       await refreshAvailability();
       const parsed = readProfileFile(
         join(profilesDir, name, "opencode.jsonc")
       );
       const resolved = resolveTargets(parsed.entries);
+      // Lazy re-capture: a launch-suppressed instance, or an earlier capture
+      // that raced the config pipeline, may hold an empty base map; "default"
+      // needs it to restore the main-config pins.
+      if (name === "default" && baseModels.size === 0) {
+        await captureBaseModels();
+      }
+      // Capture the map that was applied BEFORE this switch: migration only
+      // touches sessions whose persisted model exactly matches it (the consent
+      // guard - manual /models picks are honored).
+      const previous = captured;
       captured = targetMap(name, resolved.map);
+      if (
+        opts.migrate &&
+        previous.size > 0 &&
+        !mapsEqual(previous, captured)
+      ) {
+        const next = captured;
+        // Fire-and-forget, serialized: never awaited on the return path.
+        migrationChain = migrationChain
+          .then(() => migrateSessions(name, previous, next))
+          .catch((err) => {
+            log("warn", "session migration run failed", {
+              profile: name,
+              error: errorText(err),
+            });
+          });
+      }
       const warnings = [...parsed.warnings, ...resolved.warnings];
       for (const warning of warnings) {
         log("warn", warning, { profile: name });
@@ -505,7 +861,7 @@ export default Plugin.define({
           return;
         }
         launchSuppressed = false;
-        await applyProfile(next, { persist: false, emit: false });
+        await applyProfile(next, { persist: false, emit: false, migrate: true });
         log("info", "converged to active profile from another instance", {
           active: next,
         });
@@ -539,7 +895,7 @@ export default Plugin.define({
         log("info", "provider/model change: re-applying profile", {
           active: activeName,
         });
-        await applyProfile(activeName, { persist: true, emit: true });
+        await applyProfile(activeName, { persist: true, emit: true, migrate: true });
       } catch (err) {
         log("warn", "re-evaluation failed", { error: errorText(err) });
       }
@@ -585,11 +941,14 @@ export default Plugin.define({
       });
     }
 
+    // ---- base model capture --------------------------------------------
+    // Always captured, even for launch-suppressed instances: an in-session
+    // set("default") on such an instance must be able to restore the
+    // main-config pins.
+    await captureBaseModels();
+
     // ---- initial application (never persists, never emits) -------------
     if (!launchSuppressed) {
-      // Capture base refs BEFORE the first transform/apply so "default" can
-      // restore them.
-      await captureBaseModels();
       await applyProfile(activeName, { persist: false, emit: false });
       // The core config-agent transform registers only after plugin setup, so
       // a profile active at startup would be overwritten until the pipeline
@@ -645,10 +1004,118 @@ export default Plugin.define({
             { name }
           );
         }
-        const result = await applyProfile(name, { persist: true, emit: true });
+        const result = await applyProfile(name, { persist: true, emit: true, migrate: true });
         // runtimeActive now came from this set, not from launch detection.
         launchSuppressed = false;
         return result;
+      },
+      populate: async (input) => {
+        const sessions: ProfilePopulateSession[] =
+          (input as ProfilePopulateInput | undefined)?.sessions ?? [];
+        // Validate/resolve each entry into a CLEAN entry that always carries a
+        // non-empty string location. Entries that cannot be resolved to one
+        // are skipped here and never dispatched.
+        const clean: ProfilePopulateSession[] = [];
+        let skipped = 0;
+        for (const entry of sessions) {
+          try {
+            if (!entry || typeof entry.sessionID !== "string") {
+              skipped++;
+              continue;
+            }
+            const sessionID = entry.sessionID;
+            let location: string | undefined;
+            let agent: string | undefined;
+            let model: string | undefined;
+            let parentID: string | undefined;
+            if (typeof entry.location === "string" && entry.location) {
+              // The TUI enumerated this session from its own location's
+              // directory-filtered list: the location is authoritative and no
+              // session.get round-trip is needed. Model is already a
+              // normalized ref string.
+              location = entry.location;
+              agent = typeof entry.agent === "string" ? entry.agent : undefined;
+              model = typeof entry.model === "string" ? entry.model : undefined;
+              parentID =
+                typeof entry.parentID === "string"
+                  ? entry.parentID
+                  : undefined;
+            } else {
+              // Tabs-gap entry without a location: ONE session.get resolves
+              // the authoritative owner directory. A failed get skips the
+              // entry entirely (never seeded from unverified fields).
+              let info:
+                | {
+                    agent?: unknown;
+                    model?: unknown;
+                    parentID?: unknown;
+                    location?: { directory?: unknown };
+                    time?: { archived?: unknown };
+                  }
+                | undefined;
+              try {
+                info = await ctx.session.get({ sessionID });
+              } catch {
+                info = undefined;
+              }
+              if (!info) {
+                skipped++;
+                continue;
+              }
+              if (info.time?.archived !== undefined) {
+                skipped++;
+                continue;
+              }
+              location =
+                typeof info.location?.directory === "string"
+                  ? info.location.directory
+                  : undefined;
+              agent = typeof info.agent === "string" ? info.agent : undefined;
+              model = normalizeModelRef(
+                info.model as
+                  | { providerID?: unknown; id?: unknown; variant?: unknown }
+                  | null
+                  | undefined
+              );
+              parentID =
+                typeof info.parentID === "string" ? info.parentID : undefined;
+            }
+            if (typeof location !== "string" || !location) {
+              skipped++;
+              continue;
+            }
+            clean.push({
+              sessionID,
+              ...(agent !== undefined ? { agent } : {}),
+              ...(model !== undefined ? { model } : {}),
+              ...(parentID !== undefined ? { parentID } : {}),
+              location,
+            });
+          } catch (err) {
+            log("warn", "populate entry failed", {
+              error: errorText(err),
+            });
+          }
+        }
+        // Broadcast the clean entries through this plugin's own rpc event so
+        // EVERY instance receives them (a module-scope registry cannot span
+        // instances: each gets an isolated module copy). Each instance seeds
+        // only the entries whose location equals its own directory.
+        try {
+          await rpcRegistration.events.emit("populate", { sessions: clean });
+        } catch (err) {
+          log("warn", "failed to emit populate event", {
+            error: errorText(err),
+          });
+        }
+        log("info", "populate dispatched", {
+          requested: sessions.length,
+          dispatched: clean.length,
+          skipped,
+        });
+        // The TUI ignores this value. `tracked` now means "dispatched": the
+        // emitter cannot know how many instances actually seeded.
+        return { tracked: clean.length };
       },
     });
     emitChanged = async (active: string) => {
@@ -675,6 +1142,65 @@ export default Plugin.define({
             }
             continue;
           }
+          // Cross-instance seeding: the populate RPC cannot reach the tracker of
+          // a foreign instance through a module-scope registry (each instance
+          // gets an isolated module copy), so the handler broadcasts clean
+          // entries through this plugin's own rpc event - the same channel that
+          // makes "changed" converge every instance. Every instance (including
+          // the emitter) lands here and seeds ONLY the entries whose location is
+          // its own directory. Never re-emitted. Handled here so the event never
+          // reaches the provider/model re-evaluation path below.
+          if (event.type === "rpc.profile.populate") {
+            const sessions = (event as { data?: { sessions?: unknown } }).data
+              ?.sessions;
+            const entries: unknown[] = Array.isArray(sessions)
+              ? sessions
+              : [];
+            let seeded = 0;
+            for (const raw of entries) {
+              const entry = raw as
+                | {
+                    sessionID?: unknown;
+                    agent?: unknown;
+                    model?: unknown;
+                    parentID?: unknown;
+                    location?: unknown;
+                  }
+                | undefined;
+              if (!entry || typeof entry.sessionID !== "string") continue;
+              if (
+                typeof ownDirectory !== "string" ||
+                entry.location !== ownDirectory
+              ) {
+                // Another location's session: its own instance seeds it.
+                continue;
+              }
+              if (
+                seedSession({
+                  sessionID: entry.sessionID,
+                  agent: typeof entry.agent === "string" ? entry.agent : undefined,
+                  model: typeof entry.model === "string" ? entry.model : undefined,
+                  parentID:
+                    typeof entry.parentID === "string"
+                      ? entry.parentID
+                      : undefined,
+                })
+              ) {
+                seeded++;
+              }
+            }
+            if (entries.length > 0) {
+              log("info", "populate seeded", {
+                received: entries.length,
+                seeded,
+                ...(ownDirectory ? { location: ownDirectory } : {}),
+              });
+            }
+            continue;
+          }
+          // Session tracker: session.created / agent.selected / model.selected /
+          // deleted / execution.* keep the per-session model map current.
+          if (handleSessionEvent(event)) continue;
           if (
             event.type !== "provider.updated" &&
             event.type !== "model.updated"

@@ -40,6 +40,25 @@ export interface ProfileChangedEvent {
   active: string;
 }
 
+export interface ProfilePopulateSession {
+  sessionID: string;
+  agent?: string;
+  model?: string;
+  parentID?: string;
+  // The session's directory, sent by the TUI from its directory-filtered
+  // session list so the server can route the seed to the instance that owns
+  // that location. Absent on tabs-gap entries (resolved via session.get).
+  location?: string;
+}
+
+export interface ProfilePopulateInput {
+  sessions: ProfilePopulateSession[];
+}
+
+export interface ProfilePopulateOutput {
+  tracked: number;
+}
+
 export const Profile = Rpc.define({
   id: "profile",
   methods: {
@@ -130,6 +149,39 @@ export const Profile = Rpc.define({
         },
       },
     },
+    populate: {
+      input: {
+        type: "object",
+        properties: {
+          sessions: {
+            type: "array",
+            maxItems: 200,
+            items: {
+              type: "object",
+              properties: {
+                sessionID: { type: "string" },
+                agent: { type: "string" },
+                model: { type: "string" },
+                parentID: { type: "string" },
+                location: { type: "string" },
+              },
+              required: ["sessionID"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["sessions"],
+        additionalProperties: false,
+      },
+      output: {
+        type: "object",
+        properties: {
+          tracked: { type: "number" },
+        },
+        required: ["tracked"],
+        additionalProperties: false,
+      },
+    },
   },
   events: {
     changed: {
@@ -139,6 +191,31 @@ export const Profile = Rpc.define({
           active: { type: "string" },
         },
         required: ["active"],
+        additionalProperties: false,
+      },
+    },
+    populate: {
+      schema: {
+        type: "object",
+        properties: {
+          sessions: {
+            type: "array",
+            maxItems: 200,
+            items: {
+              type: "object",
+              properties: {
+                sessionID: { type: "string" },
+                agent: { type: "string" },
+                model: { type: "string" },
+                parentID: { type: "string" },
+                location: { type: "string" },
+              },
+              required: ["sessionID"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["sessions"],
         additionalProperties: false,
       },
     },

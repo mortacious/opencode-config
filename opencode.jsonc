@@ -132,7 +132,13 @@
     "opencode-go": {
       "models": {
         "glm-5.3-flash": {
-          "capabilities": { "tools": true, "input": ["text", "image"], "output": ["text"] }
+          "capabilities": { "tools": true, "input": ["text", "image"], "output": ["text"] },
+          // gateway rejects native reasoning_effort on this route; null strips the wire param so upstream applies its own default effort
+          "variants": [
+            { "id": "low", "settings": { "reasoningEffort": null } },
+            { "id": "high", "settings": { "reasoningEffort": null } },
+            { "id": "max", "settings": { "reasoningEffort": null } }
+          ]
         },
         "deepseek-v4.1-flash": {
           "capabilities": { "tools": true, "input": ["text", "image"], "output": ["text"] }

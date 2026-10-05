@@ -39,7 +39,8 @@
           "lumo-tamer/lumo-max": "Amenable Thor 1/qwen38-flash-next"
         }
       }
-    }
+    },
+    "./plugin-src/subagent-view"
   ],
   // lsp: dropped in v2 port - not a documented v2 top-level key
   // Auto-allow the shared knowledge dir so agents loading web-search

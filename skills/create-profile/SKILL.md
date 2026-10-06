@@ -9,16 +9,16 @@ Profiles live under `~/.config/opencode/profiles/<name>/opencode.jsonc` and are 
 
 ## Subcommand reference
 
-- `oc profile list` - list profiles, marking the active one with `*`.
-- `oc profile current` - print the effective active profile name.
-- `oc profile switch <name>` - set the default profile (writes `.active-profile`).
+- `oc profile list` - list profiles, marking the active one for the current directory with `*`.
+- `oc profile current` - print the effective active profile name for the current directory.
+- `oc profile switch [--global] <name>` - set the profile for the CURRENT directory (writes a `location` record in `.active-profile`); `--global` writes the machine-wide fallback record instead.
 - `oc profile add <name> [--clone <src>] [--swap-model "<provider/model>"]` - create a new profile.
   - With no flags: a new identity overlay (just `$schema`, equivalent to `default`).
   - With `--clone <src>`: copies `profiles/<src>/opencode.jsonc` as the starting point.
   - With `--swap-model "<provider/model>"`: rewrites EVERY `agent.*.model` and `small_model` to the given id, and strips any `variant` fields (since variants are model-specific). jq-based; full-line `//` comments are stripped first so JSONC sources parse.
   - `--clone` and `--swap-model` compose: fork + swap.
-- `oc profile delete <name>` - remove a profile (refuses `default`; clears `.active-profile` if it pointed at the deleted profile).
-- `oc profile rename <old> <new>` - rename a profile (refuses `default`; refuses to clobber an existing name; updates `.active-profile` if it pointed at the old name).
+- `oc profile delete <name>` - remove a profile (refuses `default`; scrubs every `.active-profile` record, global or per-directory, that named the deleted profile).
+- `oc profile rename <old> <new>` - rename a profile (refuses `default`; refuses to clobber an existing name; rewrites every `.active-profile` record that named the old name).
 - `oc profile install <bundle> <target-dir>` - NOT part of this skill (installs an external project-local bundle like agentic-vault).
 
 ## Workflow
@@ -28,7 +28,7 @@ Profiles live under `~/.config/opencode/profiles/<name>/opencode.jsonc` and are 
    - "A new profile with everything on model Y" -> fork from a profile that already enumerates the agents: `oc profile add <new> --clone cheap-local --swap-model "<provider/model>"`. Note: a scratch profile (no `--clone`) has no `agents` block, so `--swap-model` on scratch ONLY sets `small_model` - the base config's `agents.*.model` values then take effect unchanged. The cheap-local profile enumerates 11 agents plus `small_model` (`title`), so forking it (and then swapping) is the way to override every agent.
    - "A new empty profile" -> `oc profile add <new>` (identity overlay; user edits later).
 2. Model id format: `<provider>/<model-key>` where `<model-key>` is the key registered in the `provider.<name>.models` map of `opencode.jsonc`, NOT the display name. For example `Amenable Thor 1/unsloth/Qwen3.8-27B-NVFP4` (provider name + `/` + model key). Using the display name silently falls back to the base config.
-3. After creating, offer to switch: `oc profile switch <new>` sets the default for future launches. For a running session use the in-session `/profile` command instead: the profile-switcher plugin applies agent models live and migrates open sessions' models to the new profile's targets without a restart. Sessions where you manually picked a model (ctrl+x m) keep that pick: the label stays pinned and the pick re-asserts on your next prompt; re-pick once after switching if you want the session to follow profiles again. Only the model subset is hot-swappable; any other config change still needs a restart.
+3. After creating, offer to switch: `oc profile switch <new>` sets this directory's profile for future launches (add `--global` to set the machine-wide fallback instead). For a running session use the in-session `/profile` command instead: the profile-switcher plugin applies agent models live and rewrites the persisted models of the sessions this window currently has open as tabs (plus sessions created here afterward) to the new profile's targets without a restart. Sessions where you manually picked a model (ctrl+x m) keep that pick: the label stays pinned and the pick re-asserts on your next prompt; re-pick once after switching if you want the session to follow profiles again. Only the model subset is hot-swappable; any other config change still needs a restart.
 4. For delete/rename: confirm the target with `oc profile list` first when in doubt. Default is protected.
 
 ## Constraints

@@ -30,10 +30,22 @@
 //     is applied. Skipped entirely when the active profile came from launch
 //     detection.
 //
-// State sharing: CONFIG_DIR/.active-profile (single line, name or
-// absent/"default") is the SAME file bin/oc reads and writes, so the bash
-// launcher and this plugin stay in sync. The file is never rewritten at
-// setup; only rpc set() persists.
+// State sharing: CONFIG_DIR/.active-profile is the SAME file bin/oc reads and
+// writes, so the bash launcher and this plugin stay in sync. Format v1 is a
+// tab-separated record set: an optional machine-wide "global" fallback record
+// plus one "location\t<absDir>\t<name>" record per directory. Each plugin
+// instance owns the record for its own directory, so two TUI windows in
+// different directories hold independent active profiles; a legacy single-line
+// file (no tabs) is read as the global record. A "changed" broadcast converges
+// only instances whose directory matches, and session migration is scoped to
+// the sessions a TUI window currently claims as open tabs (plus sessions
+// created in this location) - never another workspace's history. A TUI may
+// also push an explicit claim refresh for its window - including an empty set,
+// which prunes the window's closed tabs - via a top-level window id on
+// populate (per-entry window ids alone cannot express an empty set). The file
+// is never rewritten at setup; only rpc set() persists, atomically (temp file
+// + rename) after re-reading the current file so a write never clobbers
+// another location.
 //
 // Launch detection: when the service was started by bin/oc,
 // OPENCODE_CONFIG points at CONFIG_DIR/profiles/<name>/opencode.jsonc - the
@@ -61,6 +73,8 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -179,6 +193,17 @@ function isSafeProfileName(name: string): boolean {
   return true;
 }
 
+// TUI window claim id: an opaque token (schema ^[A-Za-z0-9_-]+$, 1-64 chars).
+// Anything else is treated as a legacy payload with no window.
+function isWindowId(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length >= 1 &&
+    value.length <= 64 &&
+    /^[A-Za-z0-9_-]+$/.test(value)
+  );
+}
+
 // Launched-profile detection: bin/oc exports
 // OPENCODE_CONFIG=<CONFIG_DIR>/profiles/<name>/opencode.jsonc. Detected under
 // CONFIG_DIR/profiles (the path bin/oc hardcodes as PROFILES_DIR), regardless
@@ -200,40 +225,149 @@ function detectLaunchedProfile(): string | undefined {
   return parts[0];
 }
 
-// Reads the shared .active-profile state file. Missing/empty -> "default"
-// (no warning - the absent file is the normal default state). An unknown or
-// invalid name warns and falls back to "default" WITHOUT rewriting the file
-// (never rewrite at setup - bin/oc owns the file too).
-function readActiveState(profilesDir: string): {
+// Canonicalize a directory for .active-profile record matching: realpathSync
+// resolves symlinks so two spellings of the same directory converge. On any
+// failure (missing path, permissions) fall back to the raw value.
+function canonicalizeDirectory(directory: string): string {
+  try {
+    return realpathSync(directory);
+  } catch {
+    return directory;
+  }
+}
+
+// Why a record name is unusable, or undefined when it can actually be applied:
+// a safe single path segment naming an existing profile overlay, or the
+// literal "default" (an explicit per-directory default is meaningful even
+// without a default/ overlay on disk).
+function recordNameIssue(
+  profilesDir: string,
+  name: string
+): string | undefined {
+  if (!isSafeProfileName(name)) {
+    return (
+      "invalid profile name in .active-profile: " + JSON.stringify(name)
+    );
+  }
+  if (name === "default") return undefined;
+  if (!existsSync(join(profilesDir, name, "opencode.jsonc"))) {
+    return (
+      'unknown profile "' + name + '" in .active-profile (file left unchanged)'
+    );
+  }
+  return undefined;
+}
+
+interface ParsedActiveState {
+  // Validated machine-wide fallback record, when present.
+  global?: string;
+  // Validated per-directory records in file order.
+  locations: Array<{ directory: string; name: string }>;
+  warning?: string;
+}
+
+// Parse .active-profile content WITHOUT rewriting it. Format v1:
+//   global\t<name>
+//   location\t<absDir>\t<name>
+// A file whose text contains no tab is the legacy single-line global form.
+// Invalid, unsafe or unknown records are skipped and collected into a single
+// warning; unreachable records read as absent. Blank lines are ignored.
+function parseActiveStateFile(
+  profilesDir: string,
+  rawText: string
+): ParsedActiveState {
+  const locations: Array<{ directory: string; name: string }> = [];
+  const issues: string[] = [];
+  const trimmed = rawText.trim();
+  if (!trimmed) return { locations };
+  if (!rawText.includes("\t")) {
+    const issue = recordNameIssue(profilesDir, trimmed);
+    if (!issue) return { global: trimmed, locations };
+    return { locations, warning: issue };
+  }
+  let global: string | undefined;
+  for (const line of rawText.split("\n")) {
+    const record = line.trim();
+    if (!record) continue;
+    const parts = record.split("\t");
+    if (parts[0] === "global" && parts.length === 2) {
+      const issue = recordNameIssue(profilesDir, parts[1]);
+      if (!issue) global = parts[1];
+      else issues.push(issue);
+      continue;
+    }
+    if (parts[0] === "location" && parts.length === 3) {
+      if (!parts[1]) {
+        issues.push("empty directory in .active-profile location record");
+        continue;
+      }
+      const issue = recordNameIssue(profilesDir, parts[2]);
+      if (!issue) {
+        locations.push({ directory: parts[1], name: parts[2] });
+      } else {
+        issues.push(issue + " for " + JSON.stringify(parts[1]));
+      }
+      continue;
+    }
+    issues.push(
+      "unrecognized line in .active-profile: " + JSON.stringify(record)
+    );
+  }
+  return {
+    ...(global !== undefined ? { global } : {}),
+    locations,
+    ...(issues.length > 0 ? { warning: issues.join("; ") } : {}),
+  };
+}
+
+// Reads the shared .active-profile state file for THIS instance. Precedence:
+// the record for realpathSync(ownDirectory), then raw ownDirectory, then the
+// global record, then "default". Missing/empty -> "default" (no warning - the
+// absent file is the normal default state). Invalid/unknown names warn and are
+// skipped WITHOUT rewriting the file. `global` is returned so setup can carry
+// the legacy machine-wide record forward on the first persist.
+function readActiveState(
+  profilesDir: string,
+  ownDirectory?: string
+): {
   name: string;
+  global?: string;
   warning?: string;
 } {
   let rawText: string;
   try {
-    rawText = readFileSync(ACTIVE_FILE, "utf8").trim();
+    rawText = readFileSync(ACTIVE_FILE, "utf8");
   } catch {
     return { name: "default" };
   }
-  if (!rawText) return { name: "default" };
-  if (rawText === "default") return { name: "default" };
-  if (!isSafeProfileName(rawText)) {
-    return {
-      name: "default",
-      warning:
-        "invalid profile name in .active-profile: " +
-        JSON.stringify(rawText) +
-        "; using default (file left unchanged)",
-    };
+  const parsed = parseActiveStateFile(profilesDir, rawText);
+  let name = "default";
+  let matched = false;
+  if (ownDirectory) {
+    const canonical = canonicalizeDirectory(ownDirectory);
+    // Later records override earlier ones for the same directory.
+    for (const record of parsed.locations) {
+      if (record.directory === canonical) {
+        name = record.name;
+        matched = true;
+      }
+    }
+    if (!matched) {
+      for (const record of parsed.locations) {
+        if (record.directory === ownDirectory) {
+          name = record.name;
+          matched = true;
+        }
+      }
+    }
   }
-  if (existsSync(join(profilesDir, rawText, "opencode.jsonc"))) {
-    return { name: rawText };
+  if (!matched && parsed.global !== undefined) {
+    name = parsed.global;
   }
   return {
-    name: "default",
-    warning:
-      'unknown profile "' +
-      rawText +
-      '" in .active-profile; using default (file left unchanged)',
+    name,
+    ...(parsed.global !== undefined ? { global: parsed.global } : {}),
+    ...(parsed.warning !== undefined ? { warning: parsed.warning } : {}),
   };
 }
 
@@ -311,9 +445,15 @@ interface TrackedSession {
   model?: string;
   parentID?: string;
   running: boolean;
+  // Set once a TUI window claim covers this session. Entries that were never
+  // claimed (fed only by session.created, or by legacy no-window payloads) are
+  // never pruned; claimed entries are pruned as soon as no current claim set
+  // contains them.
+  claimed?: boolean;
 }
 
-// Tracker bound: exceeding this clears the map (populate re-seeds it).
+// Tracker bound: exceeding this clears the map AND the claim sets (populate
+// re-seeds both).
 const MAX_TRACKED_SESSIONS = 5000;
 
 function eventLocationDirectory(event: unknown): string | undefined {
@@ -353,6 +493,12 @@ export default Plugin.define({
 
     // ---- active profile resolution -------------------------------------
     let activeName = "default";
+    // This instance's location directory: the scope for state records,
+    // convergence and session migration.
+    const ownDirectory = ctx.location?.directory;
+    // Machine-wide legacy global record read at setup, carried forward by the
+    // first persist so the format conversion does not drop it.
+    let legacyGlobal: string | undefined;
     // True only while the active profile came from launch detection: the base
     // config already carries that overlay, so no transforms and no event
     // re-evaluation. Cleared by a successful rpc set().
@@ -367,8 +513,9 @@ export default Plugin.define({
         { active: activeName }
       );
     } else {
-      const state = readActiveState(profilesDir);
+      const state = readActiveState(profilesDir, ownDirectory);
       activeName = state.name;
+      legacyGlobal = state.global;
       if (state.warning) log("warn", state.warning, { active: activeName });
     }
 
@@ -394,7 +541,10 @@ export default Plugin.define({
     // location equals its own directory (a module-scope registry cannot span
     // instances - each gets an isolated module copy).
     const tracked = new Map<string, TrackedSession>();
-    const ownDirectory = ctx.location?.directory;
+    // TUI window id -> the session ids that window currently claims in THIS
+    // location. Applied wholesale per populate, so windows in the same
+    // directory never bleed into each other; the union drives claim pruning.
+    const claims = new Map<string, Set<string>>();
     // Serializes migrations so overlapping profile switches cannot interleave
     // switchModel calls for the same session.
     let migrationChain: Promise<void> = Promise.resolve();
@@ -413,27 +563,54 @@ export default Plugin.define({
           size: tracked.size,
         });
         tracked.clear();
+        claims.clear();
       }
     }
 
     // Seed one session into THIS instance's tracker. The populate event
     // handler calls this only for entries whose location equals this
-    // instance's own directory, so the tracker stays per-location.
-    function seedSession(input: {
-      sessionID: string;
-      agent?: string;
-      model?: string;
-      parentID?: string;
-    }): boolean {
-      if (tracked.has(input.sessionID)) return false;
+    // instance's own directory, so the tracker stays per-location. `claim`
+    // marks the entry as covered by a TUI window claim, which makes it
+    // eligible for pruning once no current claim set contains it.
+    function seedSession(
+      input: {
+        sessionID: string;
+        agent?: string;
+        model?: string;
+        parentID?: string;
+      },
+      claim: boolean
+    ): boolean {
+      const existing = tracked.get(input.sessionID);
+      if (existing) {
+        if (claim) existing.claimed = true;
+        return false;
+      }
       tracked.set(input.sessionID, {
         agent: input.agent,
         model: input.model,
         parentID: input.parentID,
         running: false,
+        ...(claim ? { claimed: true } : {}),
       });
       enforceTrackerBound();
       return true;
+    }
+
+    // Drop tracked sessions that were claimed at least once and are absent
+    // from the union of all current window claim sets. Entries with no claim
+    // (fed only by session.created or legacy no-window payloads) are never
+    // pruned.
+    function pruneReleasedClaims(): void {
+      const current = new Set<string>();
+      for (const ids of claims.values()) {
+        for (const id of ids) current.add(id);
+      }
+      for (const [sessionID, session] of tracked) {
+        if (session.claimed && !current.has(sessionID)) {
+          tracked.delete(sessionID);
+        }
+      }
     }
 
     // Consume one event into the session tracker. Returns true when the event
@@ -460,6 +637,7 @@ export default Plugin.define({
       if (locationMismatch(eventLocationDirectory(event))) return true;
       switch (type) {
         case "session.created": {
+          const existing = tracked.get(sessionID);
           tracked.set(sessionID, {
             agent: typeof data?.agent === "string" ? data.agent : undefined,
             model: normalizeModelRef(
@@ -471,6 +649,9 @@ export default Plugin.define({
             parentID:
               typeof data?.parentID === "string" ? data.parentID : undefined,
             running: false,
+            // A claim that already covers this session must survive the
+            // create event, or the entry would become unprunable-forever.
+            ...(existing?.claimed ? { claimed: true } : {}),
           });
           enforceTrackerBound();
           return true;
@@ -628,6 +809,17 @@ export default Plugin.define({
     let disposeRpc: (() => Promise<void>) | undefined;
     let reevalTimer: ReturnType<typeof setTimeout> | undefined;
     let settleTimer: ReturnType<typeof setTimeout> | undefined;
+    // Serialization guard for THIS plugin's rpc event emission. A subscriber
+    // may synchronously call set()/populate(), whose handler emits again; a
+    // second overlapping (or re-entrant) emit is not run concurrently. It is
+    // queued in a one-slot-per-name pending map and run once the in-flight
+    // chain is free, so an accepted event is never silently lost (the caller
+    // already returned success) yet the emit chain can never recurse or
+    // deadlock. Sequential emits (the normal path) run unaffected. Mirrors the
+    // single-chain serialization style of migrationChain, without a new
+    // dependency.
+    let rpcEmitting = false;
+    const pendingEmits = new Map<string, () => Promise<void>>();
 
     async function refreshAvailability(): Promise<void> {
       try {
@@ -788,6 +980,68 @@ export default Plugin.define({
       });
     }
 
+    // Persist this instance's directory record into .active-profile (format
+    // v1). Re-reads and re-parses the current file first so a concurrent write
+    // by another location is not clobbered; carries the global record (fresh,
+    // else the setup-time legacy value) forward; upserts this directory's
+    // record (canonical when resolvable, else raw) with the new name - the
+    // literal "default" is a real record, never a removal. Writes atomically
+    // via a temp file + rename; deletes the file only when the projected state
+    // would be empty. The caller logs any thrown write error.
+    function persistActiveProfile(name: string): void {
+      let rawText: string | undefined;
+      try {
+        rawText = readFileSync(ACTIVE_FILE, "utf8");
+      } catch {
+        rawText = undefined;
+      }
+      const parsed: ParsedActiveState =
+        rawText === undefined
+          ? { locations: [] }
+          : parseActiveStateFile(profilesDir, rawText);
+      const global = parsed.global ?? legacyGlobal;
+      // Degenerate environment: no location to key on. Keep the legacy
+      // single-line global form so bin/oc still reads the new active profile.
+      if (!ownDirectory) {
+        atomicWriteActive(name + "\n");
+        return;
+      }
+      const key = canonicalizeDirectory(ownDirectory);
+      const locations = parsed.locations.filter(
+        (record) =>
+          record.directory !== key && record.directory !== ownDirectory
+      );
+      locations.push({ directory: key, name });
+      const lines: string[] = [];
+      if (global !== undefined) lines.push("global\t" + global);
+      for (const record of locations) {
+        lines.push("location\t" + record.directory + "\t" + record.name);
+      }
+      if (lines.length === 0) {
+        rmSync(ACTIVE_FILE, { force: true });
+        return;
+      }
+      atomicWriteActive(lines.join("\n") + "\n");
+    }
+
+    // Atomic state write: temp file in the same directory, then rename over
+    // the target (same-directory rename is atomic on POSIX). Removes the temp
+    // file if the write or rename failed.
+    function atomicWriteActive(content: string): void {
+      const tmp = ACTIVE_FILE + ".tmp." + process.pid + "." + Date.now();
+      try {
+        writeFileSync(tmp, content, "utf8");
+        renameSync(tmp, ACTIVE_FILE);
+      } catch (err) {
+        try {
+          rmSync(tmp, { force: true });
+        } catch {
+          // best-effort cleanup
+        }
+        throw err;
+      }
+    }
+
     // The full apply sequence: refresh availability, read+parse the overlay,
     // resolve, update the captured map, re-register the agent transform,
     // write .active-profile, emit "changed". Never throws.
@@ -866,16 +1120,7 @@ export default Plugin.define({
       activeName = name;
       if (opts.persist) {
         try {
-          // bin/oc-consistent state: absence IS the default. Writing the
-          // literal "default" would also work, but removing the marker keeps
-          // the file's meaning single-valued ("a non-default profile is
-          // active") and matches the absent baseline bin/oc already treats
-          // as default.
-          if (name === "default") {
-            rmSync(ACTIVE_FILE, { force: true });
-          } else {
-            writeFileSync(ACTIVE_FILE, name + "\n", "utf8");
-          }
+          persistActiveProfile(name);
         } catch (err) {
           log("warn", "failed to write .active-profile", {
             error: errorText(err),
@@ -904,11 +1149,13 @@ export default Plugin.define({
       };
     }
 
-    // Cross-instance convergence: the agent registry is per LOCATION, and an
-    // rpc set() reaches only the instance serving the caller's location. Every
-    // instance subscribes to this plugin's "changed" event and re-applies the
-    // named profile locally, so all loaded locations converge. Never emits
-    // (no loop) and never persists (the setter already wrote the state file).
+    // Same-location convergence: the agent registry is per LOCATION, and an
+    // rpc set() reaches only the instance serving the caller's location, but
+    // every instance subscribes to this plugin's "changed" event. A broadcast
+    // from a DIFFERENT directory is ignored (see the event loop); an instance
+    // whose location matches the switch re-applies it locally so its own
+    // registry converges. Never emits (no loop) and never persists (the
+    // setter already wrote the state file).
     async function convergeTo(next: string): Promise<void> {
       try {
         await refreshAvailability();
@@ -1075,8 +1322,19 @@ export default Plugin.define({
         return result;
       },
       populate: async (input) => {
+        const populateInput = input as ProfilePopulateInput | undefined;
         const sessions: ProfilePopulateSession[] =
-          (input as ProfilePopulateInput | undefined)?.sessions ?? [];
+          populateInput?.sessions ?? [];
+        // Explicit top-level claim-refresh target (Fix 1). Validated like a
+        // per-entry window id; absent/invalid -> legacy per-entry-only
+        // semantics. `location` (also top-level, as the TUI cleanup sends it)
+        // routes an entry-less refresh to the owning instance; absent ->
+        // lenient (every instance applies).
+        const rawWindow = populateInput?.window;
+        const inputWindow = isWindowId(rawWindow) ? rawWindow : undefined;
+        const rawLocation = populateInput?.location;
+        const inputLocation =
+          typeof rawLocation === "string" && rawLocation ? rawLocation : undefined;
         // Validate/resolve each entry into a CLEAN entry that always carries a
         // non-empty string location. Entries that cannot be resolved to one
         // are skipped here and never dispatched.
@@ -1089,6 +1347,9 @@ export default Plugin.define({
               continue;
             }
             const sessionID = entry.sessionID;
+            // The claiming window id (validated). Absent/invalid -> legacy
+            // payload: seeded but never claimed, so it is never pruned.
+            const window = isWindowId(entry.window) ? entry.window : undefined;
             let location: string | undefined;
             let agent: string | undefined;
             let model: string | undefined;
@@ -1155,6 +1416,7 @@ export default Plugin.define({
               ...(model !== undefined ? { model } : {}),
               ...(parentID !== undefined ? { parentID } : {}),
               location,
+              ...(window !== undefined ? { window } : {}),
             });
           } catch (err) {
             log("warn", "populate entry failed", {
@@ -1165,9 +1427,20 @@ export default Plugin.define({
         // Broadcast the clean entries through this plugin's own rpc event so
         // EVERY instance receives them (a module-scope registry cannot span
         // instances: each gets an isolated module copy). Each instance seeds
-        // only the entries whose location equals its own directory.
+        // only the entries whose location equals its own directory. A
+        // validated top-level window (and its routing location, when given) is
+        // forwarded too, so an empty `sessions` array still requests an
+        // explicit claim replacement for that window.
         try {
-          await rpcRegistration.events.emit("populate", { sessions: clean });
+          await guardedEmit("populate", () =>
+            rpcRegistration.events.emit("populate", {
+              sessions: clean,
+              ...(inputWindow !== undefined ? { window: inputWindow } : {}),
+              ...(inputLocation !== undefined
+                ? { location: inputLocation }
+                : {}),
+            })
+          );
         } catch (err) {
           log("warn", "failed to emit populate event", {
             error: errorText(err),
@@ -1177,17 +1450,74 @@ export default Plugin.define({
           requested: sessions.length,
           dispatched: clean.length,
           skipped,
+          ...(inputWindow !== undefined ? { refreshWindow: inputWindow } : {}),
         });
         // The TUI ignores this value. `tracked` now means "dispatched": the
         // emitter cannot know how many instances actually seeded.
         return { tracked: clean.length };
       },
     });
+
+    // Run one rpc event emit under the shared serialization guard above. A
+    // re-entrant/concurrent emit is queued (latest thunk per event name) rather
+    // than discarded: once the in-flight emit settles, the queued thunks run in
+    // turn, so an event whose callers already returned success is not lost.
+    // At most one extra emit per name is ever queued; a re-queue during the
+    // drain waits for the next free call so the chain cannot spin. Queued
+    // failures are logged (no caller remains); the in-flight thunk's failure
+    // still propagates to its caller. Never deadlocks: rpcEmitting is cleared
+    // in a finally before any queued thunk runs.
+    async function guardedEmit(
+      eventName: string,
+      emit: () => Promise<void>
+    ): Promise<void> {
+      if (rpcEmitting) {
+        pendingEmits.set(eventName, emit);
+        log("info", "rpc emit queued: another emit is in flight", {
+          event: eventName,
+          queued: pendingEmits.size,
+        });
+        return;
+      }
+      rpcEmitting = true;
+      let failure: unknown;
+      let failed = false;
+      try {
+        await emit();
+      } catch (err) {
+        failure = err;
+        failed = true;
+      } finally {
+        rpcEmitting = false;
+      }
+      // Chain free: run the queued emits (latest thunk per name). Snapshot and
+      // clear first so a re-entrant queue during the drain waits for the next
+      // free call instead of looping.
+      const queued = Array.from(pendingEmits.entries());
+      pendingEmits.clear();
+      for (const [name, thunk] of queued) {
+        rpcEmitting = true;
+        try {
+          await thunk();
+        } catch (err) {
+          log("warn", "queued rpc emit failed", {
+            event: name,
+            error: errorText(err),
+          });
+        } finally {
+          rpcEmitting = false;
+        }
+      }
+      if (failed) throw failure;
+    }
+
     emitChanged = async (active: string) => {
-      await rpcRegistration.events.emit("changed", {
-        active,
-        agents: currentAgentModels(),
-      });
+      await guardedEmit("changed", () =>
+        rpcRegistration.events.emit("changed", {
+          active,
+          agents: currentAgentModels(),
+        })
+      );
     };
     disposeRpc = () => rpcRegistration.dispose();
 
@@ -1198,14 +1528,22 @@ export default Plugin.define({
       try {
         for await (const event of eventStream) {
           if (!event) continue;
-          // Cross-instance convergence: the agent registry is per LOCATION and
+          // Same-location convergence: the agent registry is per LOCATION and
           // an rpc set() reaches only the serving instance, so re-apply the
-          // broadcast profile locally (see convergeTo).
+          // broadcast profile locally (see convergeTo). A broadcast from
+          // ANOTHER directory must not converge here - it would re-migrate
+          // this location's sessions for a foreign profile. Lenient like
+          // locationMismatch: no location on either side -> accept.
           if (event.type === "rpc.profile.changed") {
             const data = (event as { data?: { active?: unknown } }).data;
             const next =
               typeof data?.active === "string" ? data.active : undefined;
-            if (next && isSafeProfileName(next) && !cleanedUp) {
+            if (
+              next &&
+              isSafeProfileName(next) &&
+              !cleanedUp &&
+              !locationMismatch(eventLocationDirectory(event))
+            ) {
               void convergeTo(next);
             }
             continue;
@@ -1213,18 +1551,48 @@ export default Plugin.define({
           // Cross-instance seeding: the populate RPC cannot reach the tracker of
           // a foreign instance through a module-scope registry (each instance
           // gets an isolated module copy), so the handler broadcasts clean
-          // entries through this plugin's own rpc event - the same channel that
-          // makes "changed" converge every instance. Every instance (including
-          // the emitter) lands here and seeds ONLY the entries whose location is
-          // its own directory. Never re-emitted. Handled here so the event never
-          // reaches the provider/model re-evaluation path below.
+          // entries through this plugin's own rpc event. Every instance
+          // (including the emitter) lands here and seeds ONLY the entries whose
+          // location is its own directory; valid window ids additionally claim
+          // the session for that window. Never re-emitted. Handled here so the
+          // event never reaches the provider/model re-evaluation path below.
           if (event.type === "rpc.profile.populate") {
-            const sessions = (event as { data?: { sessions?: unknown } }).data
-              ?.sessions;
-            const entries: unknown[] = Array.isArray(sessions)
-              ? sessions
+            const data = (
+              event as {
+                data?: {
+                  sessions?: unknown;
+                  window?: unknown;
+                  location?: unknown;
+                };
+              }
+            ).data;
+            const entries: unknown[] = Array.isArray(data?.sessions)
+              ? data.sessions
               : [];
+            // Explicit top-level window refresh (Fix 1): `sessions: []` with a
+            // top-level `window` still requests a claim replacement for that
+            // window. The optional top-level `location` routes it to the owning
+            // instance (lenient when absent, like locationMismatch).
+            const topWindow = isWindowId(data?.window) ? data.window : undefined;
+            const rawTopLocation = data?.location;
+            const topLocation =
+              typeof rawTopLocation === "string" && rawTopLocation
+                ? rawTopLocation
+                : undefined;
+            const topWindowTargetsThisInstance =
+              topWindow !== undefined &&
+              !(
+                ownDirectory !== undefined &&
+                topLocation !== undefined &&
+                topLocation !== ownDirectory
+              );
             let seeded = 0;
+            let claimed = 0;
+            // Per-window claim groups CONSOLIDATED from THIS payload before any
+            // application (Fix 3): a window's set is built once from all of its
+            // entries, and applied below by straight replacement, so a payload
+            // is authoritative and never unions with the accumulated claims.
+            const nextClaims = new Map<string, Set<string>>();
             for (const raw of entries) {
               const entry = raw as
                 | {
@@ -1233,6 +1601,7 @@ export default Plugin.define({
                     model?: unknown;
                     parentID?: unknown;
                     location?: unknown;
+                    window?: unknown;
                   }
                 | undefined;
               if (!entry || typeof entry.sessionID !== "string") continue;
@@ -1243,24 +1612,67 @@ export default Plugin.define({
                 // Another location's session: its own instance seeds it.
                 continue;
               }
+              const window = isWindowId(entry.window) ? entry.window : undefined;
               if (
-                seedSession({
-                  sessionID: entry.sessionID,
-                  agent: typeof entry.agent === "string" ? entry.agent : undefined,
-                  model: typeof entry.model === "string" ? entry.model : undefined,
-                  parentID:
-                    typeof entry.parentID === "string"
-                      ? entry.parentID
-                      : undefined,
-                })
+                seedSession(
+                  {
+                    sessionID: entry.sessionID,
+                    agent:
+                      typeof entry.agent === "string" ? entry.agent : undefined,
+                    model:
+                      typeof entry.model === "string" ? entry.model : undefined,
+                    parentID:
+                      typeof entry.parentID === "string"
+                        ? entry.parentID
+                        : undefined,
+                  },
+                  window !== undefined
+                )
               ) {
                 seeded++;
               }
+              if (window !== undefined) {
+                let ids = nextClaims.get(window);
+                if (!ids) {
+                  ids = new Set<string>();
+                  nextClaims.set(window, ids);
+                }
+                ids.add(entry.sessionID);
+                claimed++;
+              }
             }
-            if (entries.length > 0) {
+            // Materialize an explicit top-level window even with ZERO entries:
+            // for a targeting instance an empty set is a valid authoritative
+            // replacement that prunes the window's formerly claimed sessions.
+            if (topWindow !== undefined && topWindowTargetsThisInstance) {
+              if (!nextClaims.has(topWindow)) {
+                nextClaims.set(topWindow, new Set<string>());
+              }
+            }
+            // Apply per payload: each window named by THIS payload REPLACES its
+            // accumulated claim set outright (no union across payloads), so a
+            // single sender ends at its latest payload's set and the last
+            // payload to name a window wins. Windows this payload does not name
+            // are untouched, so one window's replacement never drops another's
+            // claims. Then drop tracked entries no longer covered by ANY current
+            // claim set. Never-claimed entries (session.created only, or legacy
+            // no-window payloads) stay.
+            for (const [window, ids] of nextClaims) {
+              claims.set(window, ids);
+            }
+            if (nextClaims.size > 0) pruneReleasedClaims();
+            if (entries.length > 0 || topWindow !== undefined) {
               log("info", "populate seeded", {
                 received: entries.length,
                 seeded,
+                claimed,
+                windows: nextClaims.size,
+                ...(topWindow !== undefined
+                  ? {
+                      refreshWindow: topWindow,
+                      refreshApplied: topWindowTargetsThisInstance,
+                    }
+                  : {}),
                 ...(ownDirectory ? { location: ownDirectory } : {}),
               });
             }

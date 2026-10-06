@@ -34,7 +34,9 @@ usage() {
 Usage: oc [profile] [args...]        Launch opencode with a profile (default: 'default')
        oc profile list                List profiles
        oc profile current             Print the effective active profile name
-       oc profile switch <name>       Set the default profile
+       oc profile switch [--global] <name>
+                                      Set the profile for this directory;
+                                      --global sets the machine-wide fallback
        oc profile add <name> [--clone <src>] [--swap-model "<provider/model>"]
        oc profile delete <name>       Delete a profile (refuses 'default')
        oc profile rename <old> <new>  Rename a profile (refuses 'default')
@@ -43,16 +45,151 @@ Usage: oc [profile] [args...]        Launch opencode with a profile (default: 'd
 EOF
 }
 
+# Shared state file <CONFIG_DIR>/.active-profile (format v1). Tab-separated
+# records, one per line:
+#   global\t<name>              machine-wide fallback record (optional)
+#   location\t<absDir>\t<name>  per-directory record (precedence over global)
+# A legacy single-line file with NO tab is read as the global record. A location
+# record may hold the literal name "default", which OVERRIDES the global
+# fallback (an explicit per-directory default). Missing/empty file -> no
+# records. Structurally unparseable lines are ignored. This is the same file
+# and format the profile-switcher plugin reads and writes.
+
+# Physical (symlink-resolved) spelling of a directory, falling back to the raw
+# value when it cannot be resolved.
+active_canonical_dir() {
+  local dir="${1:-}"
+  ( cd "$dir" 2>/dev/null && pwd -P ) || printf '%s' "$dir"
+  return 0
+}
+
+# Normalize the raw file content (ACTIVE_RAW) into v1 records on stdout.
+# Names are not validated here; resolution filters them (active_usable_name).
+active_parse() {
+  if [ -z "${ACTIVE_RAW:-}" ]; then
+    return 0
+  fi
+  if [[ "$ACTIVE_RAW" != *$'\t'* ]]; then
+    # Legacy single-line global form.
+    local legacy="$ACTIVE_RAW"
+    legacy="${legacy#"${legacy%%[![:space:]]*}"}"
+    legacy="${legacy%"${legacy##*[![:space:]]}"}"
+    if [ -n "$legacy" ]; then
+      printf 'global\t%s\n' "$legacy"
+    fi
+    return 0
+  fi
+  printf '%s\n' "$ACTIVE_RAW" | awk -F'\t' '
+    {
+      line = $0
+      sub(/\r$/, "", line)
+      gsub(/^[ \t]+/, "", line)
+      gsub(/[ \t]+$/, "", line)
+      if (line == "") next
+      n = split(line, f, "\t")
+      if (f[1] == "global" && n == 2) { print "global\t" f[2]; next }
+      if (f[1] == "location" && n == 3 && f[2] != "") {
+        print "location\t" f[2] "\t" f[3]; next
+      }
+    }
+  '
+  return 0
+}
+
+# Read the state file ONCE into ACTIVE_RAW, then normalize into ACTIVE_RECORDS
+# (one v1 record per line). Missing/empty/unreadable -> both empty.
+read_active_state() {
+  ACTIVE_RAW=""
+  ACTIVE_RECORDS=""
+  if [ -f "$ACTIVE_FILE" ] && [ -r "$ACTIVE_FILE" ] && [ -s "$ACTIVE_FILE" ]; then
+    ACTIVE_RAW="$(cat "$ACTIVE_FILE")"
+    ACTIVE_RECORDS="$(active_parse)"
+  fi
+  return 0
+}
+
+# A usable record name: the literal "default", or a safe single path segment
+# naming an existing profile overlay. Mirrors the plugin's validation.
+active_usable_name() {
+  local name="${1:-}"
+  [ -n "$name" ] || return 1
+  case "$name" in
+    .|..) return 1 ;;
+    */*|*\\*) return 1 ;;
+  esac
+  if [ "$name" = "default" ]; then
+    return 0
+  fi
+  [ -f "$PROFILES_DIR/$name/opencode.jsonc" ]
+}
+
+# Effective global record: the last usable "global" record, or nothing.
+active_get_global() {
+  local result=""
+  local scope value rest
+  while IFS=$'\t' read -r scope value rest; do
+    [ "$scope" = "global" ] || continue
+    if active_usable_name "$value"; then
+      result="$value"
+    fi
+  done <<< "${ACTIVE_RECORDS:-}"
+  if [ -n "$result" ]; then
+    printf '%s\n' "$result"
+  fi
+  return 0
+}
+
+# Effective per-directory record for $PWD: canonical (physical) path matches
+# win over raw $PWD matches; later records win over earlier ones. Nothing when
+# no usable record exists.
+active_get_location() {
+  local canonical raw
+  canonical="$(active_canonical_dir "$PWD")"
+  raw="$PWD"
+  local canon_name="" canon_hit=0 raw_name="" raw_hit=0
+  local scope dir value
+  while IFS=$'\t' read -r scope dir value; do
+    [ "$scope" = "location" ] || continue
+    active_usable_name "$value" || continue
+    if [ "$dir" = "$canonical" ]; then
+      canon_name="$value"
+      canon_hit=1
+    elif [ "$dir" = "$raw" ]; then
+      raw_name="$value"
+      raw_hit=1
+    fi
+  done <<< "${ACTIVE_RECORDS:-}"
+  if [ "$canon_hit" = 1 ]; then
+    printf '%s\n' "$canon_name"
+  elif [ "$raw_hit" = 1 ]; then
+    printf '%s\n' "$raw_name"
+  fi
+  return 0
+}
+
+# Write projected content, or delete the file when there is nothing to persist.
+# Atomic-ish: a temp file in CONFIG_DIR, then mv over $ACTIVE_FILE.
+active_write_content() {
+  local content="$1"
+  if [ -z "$content" ]; then
+    rm -f "$ACTIVE_FILE"
+    return 0
+  fi
+  local tmp
+  tmp="$(mktemp "$CONFIG_DIR/.active-profile.XXXXXX")"
+  printf '%s' "$content" > "$tmp"
+  mv "$tmp" "$ACTIVE_FILE"
+  return 0
+}
+
 profile_list() {
   if [ ! -d "$PROFILES_DIR" ]; then
     echo "No profiles directory at $PROFILES_DIR"
     exit 0
   fi
-  # Effective active profile: .active-profile contents, else 'default'.
-  local active="default"
-  if [ -f "$ACTIVE_FILE" ] && [ -r "$ACTIVE_FILE" ] && [ -s "$ACTIVE_FILE" ]; then
-    active="$(cat "$ACTIVE_FILE")"
-  fi
+  # Effective active profile for the current directory (see resolve_profile).
+  local active
+  active="$(profile_current)"
   local overlay name
   for overlay in "$PROFILES_DIR"/*/opencode.jsonc; do
     if [ -f "$overlay" ]; then
@@ -67,13 +204,79 @@ profile_list() {
 }
 
 profile_switch() {
-  local name="$1"
+  # Default scope: this directory (canonical location record). --global writes
+  # the machine-wide fallback record instead (legacy semantics). The flag is
+  # recognized at any position among the subcommand args; the only other token
+  # allowed is the single profile name, so extras are rejected.
+  local scope="location"
+  local name=""
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      --global)
+        scope="global"
+        ;;
+      *)
+        if [ -n "$name" ]; then
+          echo "Unexpected argument: $arg" >&2
+          usage >&2
+          exit 1
+        fi
+        name="$arg"
+        ;;
+    esac
+  done
+  if [ -z "$name" ]; then
+    usage >&2
+    exit 1
+  fi
   if [ ! -f "$PROFILES_DIR/$name/opencode.jsonc" ]; then
     echo "No such profile: $name (run 'oc profile list')" >&2
     exit 1
   fi
-  printf '%s\n' "$name" > "$ACTIVE_FILE"
-  echo "Active profile: $name"
+  read_active_state
+  local canonical raw
+  canonical="$(active_canonical_dir "$PWD")"
+  raw="$PWD"
+  # Preserve unrelated records; replace this directory's record (or the global
+  # record for --global). Later output: global first, then locations.
+  local global="" have_global=0 locations=""
+  local rscope a b
+  while IFS=$'\t' read -r rscope a b; do
+    [ -n "$rscope" ] || continue
+    case "$rscope" in
+      global)
+        if [ "$scope" = "global" ]; then
+          continue
+        fi
+        global="$a"
+        have_global=1
+        ;;
+      location)
+        if [ "$scope" = "location" ] && { [ "$a" = "$canonical" ] || [ "$a" = "$raw" ]; }; then
+          continue
+        fi
+        locations="${locations}location"$'\t'"$a"$'\t'"$b"$'\n'
+        ;;
+    esac
+  done <<< "${ACTIVE_RECORDS:-}"
+  if [ "$scope" = "global" ]; then
+    global="$name"
+    have_global=1
+  else
+    locations="${locations}location"$'\t'"$canonical"$'\t'"$name"$'\n'
+  fi
+  local content=""
+  if [ "$have_global" = 1 ] && [ -n "$global" ]; then
+    content="global"$'\t'"$global"$'\n'
+  fi
+  content="${content}${locations}"
+  active_write_content "$content"
+  if [ "$scope" = "global" ]; then
+    echo "Global profile: $name"
+  else
+    echo "Active profile: $name"
+  fi
 }
 
 profile_add() {
@@ -146,19 +349,26 @@ PROFILE_EOF
 }
 
 profile_current() {
-  # Mirrors resolve_profile precedence, but WITHOUT considering an explicit
-  # positional arg (this subcommand takes none). Prints just the name.
+  # Effective active profile for the current directory, mirroring
+  # resolve_profile precedence WITHOUT an explicit positional arg:
+  # OC_PROFILE > per-directory record > global record (or legacy single-line)
+  # > literal "default". Prints just the name.
   if [ -n "${OC_PROFILE:-}" ] && [ -f "$PROFILES_DIR/$OC_PROFILE/opencode.jsonc" ]; then
     echo "$OC_PROFILE"
     return 0
   fi
-  if [ -f "$ACTIVE_FILE" ] && [ -r "$ACTIVE_FILE" ] && [ -s "$ACTIVE_FILE" ]; then
-    local active
-    active="$(cat "$ACTIVE_FILE")"
-    if [ -f "$PROFILES_DIR/$active/opencode.jsonc" ]; then
-      echo "$active"
-      return 0
-    fi
+  read_active_state
+  local loc
+  loc="$(active_get_location)"
+  if [ -n "$loc" ]; then
+    echo "$loc"
+    return 0
+  fi
+  local glob
+  glob="$(active_get_global)"
+  if [ -n "$glob" ]; then
+    echo "$glob"
+    return 0
   fi
   echo "default"
 }
@@ -174,10 +384,29 @@ profile_delete() {
     exit 1
   fi
   rm -rf "$PROFILES_DIR/$name"
-  # Clear active marker if it pointed at the deleted profile.
-  if [ -f "$ACTIVE_FILE" ] && [ "$(cat "$ACTIVE_FILE")" = "$name" ]; then
-    rm -f "$ACTIVE_FILE"
-  fi
+  # Scrub EVERY state record (global or per-directory) naming the deleted
+  # profile; delete the file when nothing remains.
+  read_active_state
+  local content=""
+  local rscope a b
+  while IFS=$'\t' read -r rscope a b; do
+    [ -n "$rscope" ] || continue
+    case "$rscope" in
+      global)
+        if [ "$a" = "$name" ]; then
+          continue
+        fi
+        content="${content}global"$'\t'"$a"$'\n'
+        ;;
+      location)
+        if [ "$b" = "$name" ]; then
+          continue
+        fi
+        content="${content}location"$'\t'"$a"$'\t'"$b"$'\n'
+        ;;
+    esac
+  done <<< "${ACTIVE_RECORDS:-}"
+  active_write_content "$content"
   echo "Deleted profile: $name"
 }
 
@@ -197,8 +426,29 @@ profile_rename() {
     exit 1
   fi
   mv "$PROFILES_DIR/$old" "$PROFILES_DIR/$new"
-  if [ -f "$ACTIVE_FILE" ] && [ "$(cat "$ACTIVE_FILE")" = "$old" ]; then
-    printf '%s\n' "$new" > "$ACTIVE_FILE"
+  # Rewrite EVERY state record (global or per-directory) naming the old profile.
+  read_active_state
+  if [ -n "$ACTIVE_RECORDS" ]; then
+    local content=""
+    local rscope a b
+    while IFS=$'\t' read -r rscope a b; do
+      [ -n "$rscope" ] || continue
+      case "$rscope" in
+        global)
+          if [ "$a" = "$old" ]; then
+            a="$new"
+          fi
+          content="${content}global"$'\t'"$a"$'\n'
+          ;;
+        location)
+          if [ "$b" = "$old" ]; then
+            b="$new"
+          fi
+          content="${content}location"$'\t'"$a"$'\t'"$b"$'\n'
+          ;;
+      esac
+    done <<< "$ACTIVE_RECORDS"
+    active_write_content "$content"
   fi
   echo "Renamed profile: $old -> $new"
 }
@@ -241,7 +491,7 @@ profile_cmd() {
         usage >&2
         exit 1
       fi
-      profile_switch "$1"
+      profile_switch "$@"
       ;;
     add)
       if [ $# -lt 1 ]; then
@@ -334,14 +584,15 @@ complete -c oc -n "__fish_use_subcommand" -l help -s h -d "Show usage"
 # 'profile' subcommand: list, switch, add, install.
 complete -c oc -n "__fish_seen_subcommand_from profile" -a "list" -d "List profiles"
 complete -c oc -n "__fish_seen_subcommand_from profile" -a "current" -d "Print active profile"
-complete -c oc -n "__fish_seen_subcommand_from profile" -a "switch" -d "Set default profile"
+complete -c oc -n "__fish_seen_subcommand_from profile" -a "switch" -d "Set profile for this directory (or --global fallback)"
 complete -c oc -n "__fish_seen_subcommand_from profile" -a "add" -d "Create a new profile"
+
+# 'profile switch [--global] <name>': complete existing profile names.
+complete -c oc -n "__fish_seen_subcommand_from switch" -l global -d "Set the machine-wide fallback profile"
+complete -c oc -n "__fish_seen_subcommand_from switch" -a "(__oc_profiles)" -d "Profile name"
 complete -c oc -n "__fish_seen_subcommand_from profile" -a "delete" -d "Delete a profile"
 complete -c oc -n "__fish_seen_subcommand_from profile" -a "rename" -d "Rename a profile"
 complete -c oc -n "__fish_seen_subcommand_from profile" -a "install" -d "Install an external bundle"
-
-# 'profile switch <name>': complete existing profile names.
-complete -c oc -n "__fish_seen_subcommand_from switch" -a "(__oc_profiles)" -d "Profile name"
 
 # 'profile delete <name>': complete existing profile names.
 complete -c oc -n "__fish_seen_subcommand_from delete" -a "(__oc_profiles)" -d "Profile to delete"
@@ -385,16 +636,23 @@ resolve_profile() {
     echo "$OC_PROFILE"
     return 0
   fi
-  # 3. .active-profile file.
-  if [ -f "$ACTIVE_FILE" ] && [ -r "$ACTIVE_FILE" ] && [ -s "$ACTIVE_FILE" ]; then
-    local active
-    active="$(cat "$ACTIVE_FILE")"
-    if [ -f "$PROFILES_DIR/$active/opencode.jsonc" ]; then
-      echo "$active"
-      return 0
-    fi
+  # 3. Per-directory record for the current directory (a "default" record
+  #    counts as present and overrides the global fallback).
+  read_active_state
+  local loc
+  loc="$(active_get_location)"
+  if [ -n "$loc" ]; then
+    echo "$loc"
+    return 0
   fi
-  # 4. Fallback.
+  # 4. Global record (or legacy single-line value).
+  local glob
+  glob="$(active_get_global)"
+  if [ -n "$glob" ]; then
+    echo "$glob"
+    return 0
+  fi
+  # 5. Fallback.
   echo "default"
 }
 

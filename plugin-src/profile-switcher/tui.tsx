@@ -4,9 +4,18 @@
 //   -> ui.dialog.select over rpc list() (current profile marked), then
 //   rpc.set. The result is toasted with the prefix "Profile switched: "
 //   including any fallback substitutions and warnings.
+// - Session claiming: this window claims ONLY the sessions currently open as
+//   tabs, each tagged with a stable per-plugin-load `window` id and this
+//   TUI's own directory. Every populate replaces this window's claim set on
+//   the server, so sessions whose tabs closed are pruned and migration stays
+//   scoped to this window; an empty list is a valid refresh. Claiming re-runs
+//   debounced when the open-tab set changes, once just before a profile
+//   switch, and once (empty) at cleanup. With tabs disabled or unreadable it
+//   falls back to the reactive session list.
 // - Sidebar slot (sidebar.content): renders "Profile: <active>", initialized
 //   from rpc current() and kept live by subscribing to the rpc "changed"
-//   event; the subscription and the slot are unsubscribed in cleanup.
+//   event, applied only for events from this window's location; the
+//   subscription and the slot are unsubscribed in cleanup.
 //
 // Resilience: plugin setup runs OUTSIDE the host's Solid component tree, so
 // context.keymap.layer() cannot be called directly (it resolves a
@@ -22,7 +31,7 @@
 //
 // All files ASCII only.
 
-import { createSignal, For, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, onMount, Show } from "solid-js";
 
 import { Plugin } from "@opencode/plugin/tui";
 
@@ -55,6 +64,9 @@ function truncate(value: string, max: number): string {
   return value.slice(0, max - 3) + "...";
 }
 
+// Debounce for the reactive open-tab reclaim (see registerTabsReclaim).
+const TAB_RECLAIM_DEBOUNCE_MS = 300;
+
 // Structured ModelRef -> the normalized "providerID/id#variant" ref string the
 // server tracker uses; the "default" variant is dropped. Undefined when the
 // ref is missing providerID or id (un-serializable).
@@ -81,8 +93,11 @@ interface PopulateEntry {
   parentID?: string;
   // This TUI's own directory, so the server can route the seed to the plugin
   // instance that owns the location (RPC routing between instances is not
-  // caller-guaranteed). Absent on tabs-gap entries.
+  // caller-guaranteed). Absent in a degenerate context with no directory.
   location?: string;
+  // This window's stable claim id (see windowID): the server replaces this
+  // window's whole claim set per populate, which is what prunes closed tabs.
+  window: string;
 }
 
 interface SessionInfoLike {
@@ -104,126 +119,123 @@ export default Plugin.define({
 
     const rpc = context.client.rpc(Profile);
 
-    // Seed the server-side session tracker with sessions that predate this
-    // plugin load (the server plugin has no session.list of its own). Runs
-    // concurrently with the rest of setup; every failure is swallowed so setup
-    // cannot break.
-    async function populateTracker(): Promise<void> {
+    // Stable claim id for THIS plugin load (one TUI window): random ASCII
+    // matching the server's window schema ^[A-Za-z0-9_-]{1,64}$. crypto is the
+    // preferred entropy source; the fallback is still ASCII and unique enough
+    // for a single process.
+    const windowID = (() => {
       try {
+        const id = crypto.randomUUID().replace(/-/g, "");
+        if (/^[A-Za-z0-9_-]{1,64}$/.test(id)) return id;
+      } catch {
+        // fall through to the entropy fallback
+      }
+      let id = "";
+      for (let index = 0; index < 32; index++) {
+        id += Math.floor(Math.random() * 36).toString(36);
+      }
+      return id;
+    })();
+
+    // Candidate session ids for this window's claim. The open session tabs are
+    // authoritative; when tabs are disabled or the tab read fails, fall back
+    // to the reactive data store's session list (best-effort). Throws only
+    // when NEITHER source is readable - the caller then skips the populate
+    // rather than sending an empty list, which would drop live claims.
+    function collectCandidateSessionIDs(): string[] {
+      let tabsEnabled = false;
+      try {
+        tabsEnabled = context.ui.tabs.enabled();
+      } catch {
+        tabsEnabled = false;
+      }
+      if (tabsEnabled) {
+        try {
+          const ids: string[] = [];
+          for (const tab of context.ui.tabs.list()) {
+            if (typeof tab?.sessionID === "string") ids.push(tab.sessionID);
+          }
+          return ids;
+        } catch {
+          // The reactive fallback below covers an unreadable tab list.
+        }
+      }
+      const ids: string[] = [];
+      for (const info of context.data.session.list()) {
+        if (typeof info?.id === "string") ids.push(info.id);
+      }
+      return ids;
+    }
+
+    // Claim only the sessions open as tabs in THIS window. Every call replaces
+    // this window's claim set on the server, so an empty list is a meaningful
+    // refresh that prunes sessions whose tabs closed. Returns true when a
+    // populate call was issued (even with zero entries); false when a
+    // transient failure prevented assembling a candidate list at all, in
+    // which case no populate is sent so live claims are not wiped. Never
+    // throws.
+    async function populateTracker(): Promise<boolean> {
+      try {
+        const directory = context.location?.directory;
+        let candidateIDs: string[];
+        try {
+          candidateIDs = collectCandidateSessionIDs();
+        } catch {
+          // Nothing was assembled: a spurious empty populate here would drop
+          // this window's live claims.
+          return false;
+        }
         const entries: PopulateEntry[] = [];
         const seen = new Set<string>();
-        const directory = context.location?.directory;
-        if (typeof directory === "string" && directory) {
-          // Authoritative enumeration of this location's sessions: paged
-          // client.session.list({directory}). context.data.session.list() is
-          // NOT used here - it does not reliably contain sessions that predate
-          // the TUI's own event stream.
-          let cursor: string | undefined;
-          let pages = 0;
-          while (entries.length < 200 && pages < 100) {
-            pages++;
-            const res = await context.client.session.list({
-              directory,
-              limit: 50,
-              ...(cursor === undefined ? {} : { cursor }),
-            });
-            const page: SessionInfoLike[] = res?.data ?? [];
-            for (const info of page) {
-              try {
-                const id = info?.id;
-                if (typeof id !== "string" || seen.has(id)) continue;
-                if (info.time?.archived !== undefined) continue;
-                // Children never migrate: excluded from seeding.
-                if (typeof info.parentID === "string" && info.parentID) {
-                  continue;
-                }
-                const model = serializeModel(info.model);
-                if (model === undefined) continue;
-                seen.add(id);
-                const entry: PopulateEntry = {
-                  sessionID: id,
-                  model,
-                  location: directory,
-                };
-                if (typeof info.agent === "string") entry.agent = info.agent;
-                entries.push(entry);
-                if (entries.length >= 200) break;
-              } catch {
-                // skip this entry only
-              }
-            }
-            if (page.length === 0) break;
-            const next = res?.cursor?.next;
-            if (typeof next !== "string" || !next) break;
-            cursor = next;
-          }
-        } else {
-          // No usable location on this context: unchanged fallback to the
-          // reactive data store's best-effort list.
-          let sessions: SessionInfoLike[] = [];
+        for (const id of candidateIDs) {
+          if (entries.length >= 200) break;
+          if (seen.has(id)) continue;
+          seen.add(id);
           try {
-            sessions = context.data.session.list() as SessionInfoLike[];
-          } catch {
-            sessions = [];
-          }
-          for (const info of sessions) {
-            try {
-              const id = info?.id;
-              if (typeof id !== "string" || seen.has(id)) continue;
-              if (info.time?.archived !== undefined) continue;
-              const model = serializeModel(info.model);
-              if (model === undefined) continue;
-              seen.add(id);
-              entries.push({
-                sessionID: id,
-                agent: typeof info.agent === "string" ? info.agent : undefined,
-                model,
-                parentID:
-                  typeof info.parentID === "string"
-                    ? info.parentID
-                    : undefined,
-              });
-            } catch {
-              // skip this entry only
-            }
-          }
-        }
-        // Any open tab not covered by the enumeration above: fetch it once.
-        // These entries carry NO location; the server resolves the owner via a
-        // session.get.
-        let tabs: ReadonlyArray<{ sessionID?: unknown }> = [];
-        try {
-          tabs = context.ui.tabs.list();
-        } catch {
-          tabs = [];
-        }
-        for (const tab of tabs) {
-          try {
-            const id = tab?.sessionID;
-            if (typeof id !== "string" || seen.has(id)) continue;
-            if (entries.length >= 200) break;
-            seen.add(id);
+            // One session.get per candidate resolves the authoritative
+            // agent/model/parentID/archived state.
             const info = (await context.client.session.get({
               sessionID: id,
             })) as SessionInfoLike;
+            if (info?.time?.archived !== undefined) continue;
+            // Children never migrate: excluded from claiming.
+            if (typeof info.parentID === "string" && info.parentID) continue;
             const model = serializeModel(info?.model);
             if (model === undefined) continue;
-            entries.push({
+            const entry: PopulateEntry = {
               sessionID: id,
-              agent: typeof info.agent === "string" ? info.agent : undefined,
               model,
-              parentID:
-                typeof info.parentID === "string" ? info.parentID : undefined,
-            });
+              window: windowID,
+            };
+            if (typeof info.agent === "string") entry.agent = info.agent;
+            if (typeof directory === "string" && directory) {
+              entry.location = directory;
+            }
+            entries.push(entry);
           } catch {
-            // skip fetch failures only
+            // skip this entry only
           }
         }
-        if (entries.length === 0) return;
-        // The populate input schema caps sessions at 200.
-        await rpc.populate({ sessions: entries.slice(0, 200) });
+        try {
+          // The populate input schema caps sessions at 200. Always carry the
+          // top-level window so even an empty refresh replaces this window's
+          // claim set (prunes closed tabs); the top-level location routes it to
+          // the instance owning this directory when the context knows it.
+          await rpc.populate({
+            sessions: entries.slice(0, 200),
+            window: windowID,
+            ...(typeof directory === "string" && directory
+              ? { location: directory }
+              : {}),
+          });
+          return true;
+        } catch {
+          // populate is best-effort; never break setup
+          return false;
+        }
       } catch {
-        // populate is best-effort; never break setup
+        // never throw out of populateTracker
+        return false;
       }
     }
     void populateTracker();
@@ -242,6 +254,21 @@ export default Plugin.define({
 
     try {
       const unsubscribe = rpc.events.on("changed", (event) => {
+        // Follow only switches originating from this window's location; a
+        // foreign window's switch must not update this sidebar. Lenient when
+        // this context has no directory.
+        const ownDirectory = context.location?.directory;
+        const eventDirectory = event.location?.directory;
+        // Lenient like the server's locationMismatch: skip only when BOTH
+        // sides name a directory and they differ; a directory-less event
+        // applies.
+        if (
+          ownDirectory !== undefined &&
+          eventDirectory !== undefined &&
+          eventDirectory !== ownDirectory
+        ) {
+          return;
+        }
         const data = event.data as
           | ProfileChangedEvent
           | Readonly<Record<string, unknown>>;
@@ -259,7 +286,23 @@ export default Plugin.define({
 
     async function switchTo(name: string): Promise<void> {
       try {
+        // Fresh claims for this window right before the switch: migration is
+        // scoped to the sessions this window currently holds. Best effort.
+        await populateTracker();
         const result = (await rpc.set({ name })) as ProfileSetResult;
+        // Apply the result immediately: the location-stamped "changed" event
+        // may be filtered or lost, and this window's sidebar must still show
+        // the switch. The agent list follows from a background refresh.
+        setActive(result.active);
+        void (async () => {
+          try {
+            const current = (await rpc.current({})) as ProfileCurrentResult;
+            setActive(current.active);
+            setAgents(current.agents ?? []);
+          } catch {
+            // background refresh is best-effort
+          }
+        })();
         let message = "Profile switched: " + result.active;
         const fallbacks = result.applied.filter((entry) => entry.fallback);
         if (fallbacks.length > 0) {
@@ -331,13 +374,62 @@ export default Plugin.define({
       }
     }
 
+    // Reactive re-claim: the always-mounted app slot observes the open-tab id
+    // set and, when it changes, schedules a debounced fire-and-forget
+    // populateTracker() so opening/closing tabs immediately refreshes this
+    // window's claims. Registered once; the timer is cleaned up with the slot.
+    let tabsReclaimRegistered = false;
+    function registerTabsReclaim(): void {
+      if (tabsReclaimRegistered) return;
+      try {
+        let lastTabKey: string | undefined;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        createEffect(() => {
+          let tabKey = "";
+          try {
+            // Sorted join = a stable key over the open-tab id SET (tab order
+            // does not matter).
+            tabKey = context.ui.tabs
+              .list()
+              .map((tab) => tab.sessionID)
+              .sort()
+              .join("\n");
+          } catch {
+            tabKey = "";
+          }
+          if (lastTabKey === undefined) {
+            // First reactive read: the initial populateTracker() already ran
+            // during setup, so only later changes schedule a re-claim.
+            lastTabKey = tabKey;
+            return;
+          }
+          if (tabKey === lastTabKey) return;
+          lastTabKey = tabKey;
+          if (timer !== undefined) clearTimeout(timer);
+          timer = setTimeout(() => {
+            timer = undefined;
+            void populateTracker();
+          }, TAB_RECLAIM_DEBOUNCE_MS);
+        });
+        disposers.push(() => {
+          if (timer !== undefined) clearTimeout(timer);
+          timer = undefined;
+        });
+        tabsReclaimRegistered = true;
+      } catch (err) {
+        degrade("tab reclaim effect", err);
+      }
+    }
+
     // The always-mounted app slot exists only to run our component body:
     // onMount fires inside the hosted component tree where the keymap
-    // provider IS in scope, so the layer can be registered there.
+    // provider IS in scope, so the layer can be registered there. The same
+    // component registers the reactive open-tab reclaim effect.
     try {
       const removeKeymapSlot = context.ui.slot({
         append: "app",
         render: () => {
+          registerTabsReclaim();
           onMount(() => registerKeymapLayer());
           return null;
         },
@@ -413,6 +505,26 @@ export default Plugin.define({
     // registerKeymapLayer's own try/catch.
 
     return () => {
+      // Best-effort final claim refresh for this window id: zero sessions with
+      // this window id and (when known) this directory, so a closed/reloaded
+      // window stops holding claims. Fire-and-forget: never awaited, never
+      // throws.
+      const directory = context.location?.directory;
+      try {
+        void rpc
+          .populate({
+            sessions: [],
+            window: windowID,
+            ...(typeof directory === "string" && directory
+              ? { location: directory }
+              : {}),
+          })
+          .catch(() => {
+            // cleanup must never reject
+          });
+      } catch {
+        // never break cleanup
+      }
       for (const dispose of disposers) {
         try {
           dispose();

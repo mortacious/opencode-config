@@ -56,10 +56,25 @@ export interface ProfilePopulateSession {
   // session list so the server can route the seed to the instance that owns
   // that location. Absent on tabs-gap entries (resolved via session.get).
   location?: string;
+  // The claiming TUI window's id: the TUI tags the sessions open in this
+  // window as tabs so the server instance can scope migration targets to the
+  // sessions a window actually holds. Absent on legacy payloads.
+  window?: string;
 }
 
 export interface ProfilePopulateInput {
   sessions: ProfilePopulateSession[];
+  // Explicit top-level claim-refresh target for THIS window. When present, the
+  // named window's claim set is REPLACED wholesale by the sessions in
+  // `sessions` tagged with that same window - so `sessions: []` with a
+  // top-level `window` is a valid refresh that prunes the window's closed tabs
+  // (per-entry `window` alone cannot express an empty set). Invalid/absent ->
+  // legacy per-entry-only semantics.
+  window?: string;
+  // The TUI's own directory. An empty top-level-window refresh carries no
+  // entries to route by, so this field tells each server instance whether the
+  // refresh targets its location. Absent -> lenient (apply).
+  location?: string;
 }
 
 export interface ProfilePopulateOutput {
@@ -183,11 +198,24 @@ export const Profile = Rpc.define({
                 model: { type: "string" },
                 parentID: { type: "string" },
                 location: { type: "string" },
+                window: {
+                  type: "string",
+                  minLength: 1,
+                  maxLength: 64,
+                  pattern: "^[A-Za-z0-9_-]+$",
+                },
               },
               required: ["sessionID"],
               additionalProperties: false,
             },
           },
+          window: {
+            type: "string",
+            minLength: 1,
+            maxLength: 64,
+            pattern: "^[A-Za-z0-9_-]+$",
+          },
+          location: { type: "string" },
         },
         required: ["sessions"],
         additionalProperties: false,
@@ -240,11 +268,24 @@ export const Profile = Rpc.define({
                 model: { type: "string" },
                 parentID: { type: "string" },
                 location: { type: "string" },
+                window: {
+                  type: "string",
+                  minLength: 1,
+                  maxLength: 64,
+                  pattern: "^[A-Za-z0-9_-]+$",
+                },
               },
               required: ["sessionID"],
               additionalProperties: false,
             },
           },
+          window: {
+            type: "string",
+            minLength: 1,
+            maxLength: 64,
+            pattern: "^[A-Za-z0-9_-]+$",
+          },
+          location: { type: "string" },
         },
         required: ["sessions"],
         additionalProperties: false,

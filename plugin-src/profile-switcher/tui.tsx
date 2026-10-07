@@ -598,14 +598,20 @@ export default Plugin.define({
       degrade("sidebar slot", err);
     }
 
-    // The home.footer slot is session-less, so the same ProfileSection shows
-    // the active profile on the startup/home screen where no session (and thus
-    // no sidebar.content) exists. Registered and degraded independently so a
-    // failure here never breaks the sidebar claim above.
+    // The home.footer slot is session-less, so it is a passive,
+    // name-only reminder of the active profile on the startup/home screen:
+    // a static "Profile: <active>" line, with no agent list and no
+    // expand/collapse. Sessions get the full detail view in the sidebar
+    // (sidebar.content / ProfileSection), which shares its own expand state;
+    // this slot must not claim that storage or toggle state. Registered and
+    // degraded independently so a failure here never breaks the sidebar claim
+    // above.
     try {
       const removeHomeSlot = context.ui.slot({
         append: "home.footer",
-        render: () => <ProfileSection />,
+        render: () => (
+          <text fg={context.theme.text.base}>Profile: {active()}</text>
+        ),
       });
       disposers.push(removeHomeSlot);
     } catch (err) {

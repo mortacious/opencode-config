@@ -887,10 +887,19 @@ export default Plugin.define({
     // PREVIOUS profile target for its agent, switching it to the NEW target.
     // Never throws. Serialized via migrationChain so overlapping switches
     // cannot interleave.
+    //
+    // Consent is PERMISSIVE ALTERNATIVES when `rescueBase` is provided (the
+    // explicit same-profile re-selection rescue): a session consents when its
+    // model matches EITHER `previous`'s target for its agent OR `rescueBase`'s
+    // (the base-config default pin) - two independent OR sources, so a
+    // manually-picked model matching neither stays honored. An entry absent
+    // from a source cannot match; at least one source must match. Without
+    // `rescueBase` the gate is exactly `previous` alone (unchanged).
     async function migrateSessions(
       name: string,
       previous: Map<string, string>,
-      next: Map<string, string>
+      next: Map<string, string>,
+      rescueBase?: Map<string, string>
     ): Promise<void> {
       let updated = 0;
       let skippedRunning = 0;
@@ -908,18 +917,35 @@ export default Plugin.define({
             continue;
           }
           const prevRef = previous.get(session.agent);
+          const sessionBase = baseModelRef(session.model);
           // Consent guard at MODEL granularity (provider/id, "#variant"
           // stripped): a session carrying a variant default (e.g. seeded by
           // the TUI as "provider/id#max") still matches the base pin and
-          // migrates. An agent absent from the previous map still means
-          // "leave alone" (never revert); a manual pick of a DIFFERENT model
-          // is honored.
-          if (
-            prevRef === undefined ||
-            baseModelRef(session.model) !== baseModelRef(prevRef)
-          ) {
-            skippedOffTarget++;
-            continue;
+          // migrates. Without `rescueBase` the gate is exactly `previous`
+          // alone (an agent absent from it means "leave alone"; a manual pick
+          // of a DIFFERENT model is honored) - the original behavior. With
+          // `rescueBase` (the explicit same-profile re-selection rescue) the
+          // gate is PERMISSIVE ALTERNATIVES: consent when the session matches
+          // EITHER `previous`'s target OR `rescueBase`'s base-config pin for
+          // its agent. Two independent OR sources, so neither silently masks
+          // the other and a manual pick matching NEITHER stays honored; an
+          // entry absent from one source simply fails that source.
+          if (rescueBase === undefined) {
+            if (prevRef === undefined || sessionBase !== baseModelRef(prevRef)) {
+              skippedOffTarget++;
+              continue;
+            }
+          } else {
+            const rescueRef = rescueBase.get(session.agent);
+            const matchesPrevious =
+              prevRef !== undefined && sessionBase === baseModelRef(prevRef);
+            const matchesRescue =
+              rescueRef !== undefined &&
+              sessionBase === baseModelRef(rescueRef);
+            if (!matchesPrevious && !matchesRescue) {
+              skippedOffTarget++;
+              continue;
+            }
           }
           const nextRef = next.get(session.agent);
           if (nextRef === undefined) {
@@ -1056,7 +1082,12 @@ export default Plugin.define({
     // write .active-profile, emit "changed". Never throws.
     async function applyProfile(
       name: string,
-      opts: { persist: boolean; emit: boolean; migrate?: boolean }
+      opts: {
+        persist: boolean;
+        emit: boolean;
+        migrate?: boolean;
+        rescue?: boolean;
+      }
     ): Promise<ProfileSetResult> {
       await refreshAvailability();
       const parsed = readProfileFile(
@@ -1069,26 +1100,54 @@ export default Plugin.define({
       if (name === "default" && baseModels.size === 0) {
         await captureBaseModels();
       }
-      // Capture the map that was applied BEFORE this switch: migration only
-      // touches sessions whose persisted model exactly matches it (the consent
-      // guard - manual /models picks are honored).
+      // Capture the map that was applied BEFORE this switch: migration is
+      // consent-gated on it, so only sessions whose persisted model matches a
+      // previous target (provider/id granularity) are moved - manual /models
+      // picks are honored. Two migration cases follow:
+      //  - Maps DIFFER: a real profile transition. Consent = previous; behavior
+      //    is unchanged from the original gate (previous.size > 0 guard kept).
+      //  - Maps EQUAL: re-selecting the already-active profile. Normally a
+      //    no-op, but an explicit set() passes rescue=true so the window can be
+      //    forced to match the profile: a session the TUI seeded while its
+      //    agent cache was stale carries the base-config default, which never
+      //    matches the profile target, so consent becomes PERMISSIVE
+      //    ALTERNATIVES - a session consents when its model matches EITHER the
+      //    previous target for its agent OR the base-config pin (previous OR
+      //    baseModels, passed as the separate `rescueBase` source to
+      //    migrateSessions). Two explicit OR sources keep both semantics
+      //    visible rather than a union map silently masking one; a manual pick
+      //    matching NEITHER source is still honored. rescue is set ONLY by the
+      //    explicit set handler: background convergeTo/reevaluate must never
+      //    force-migrate a manually-picked model just because an unrelated
+      //    provider event fired.
       const previous = captured;
       captured = targetMap(name, resolved.map);
-      if (
-        opts.migrate &&
-        previous.size > 0 &&
-        !mapsEqual(previous, captured)
-      ) {
-        const next = captured;
-        // Fire-and-forget, serialized: never awaited on the return path.
-        migrationChain = migrationChain
-          .then(() => migrateSessions(name, previous, next))
-          .catch((err) => {
-            log("warn", "session migration run failed", {
-              profile: name,
-              error: errorText(err),
+      if (opts.migrate) {
+        if (previous.size > 0 && !mapsEqual(previous, captured)) {
+          const next = captured;
+          // Fire-and-forget, serialized: never awaited on the return path.
+          migrationChain = migrationChain
+            .then(() => migrateSessions(name, previous, next))
+            .catch((err) => {
+              log("warn", "session migration run failed", {
+                profile: name,
+                error: errorText(err),
+              });
             });
-          });
+        } else if (opts.rescue && mapsEqual(previous, captured)) {
+          const next = captured;
+          // Rescue consent is the OR of the previous targets and the
+          // base-config pins: pass baseModels as the separate fourth argument
+          // so migrateSessions admits a session matching EITHER source.
+          migrationChain = migrationChain
+            .then(() => migrateSessions(name, previous, next, baseModels))
+            .catch((err) => {
+              log("warn", "session rescue run failed", {
+                profile: name,
+                error: errorText(err),
+              });
+            });
+        }
       }
       let warnings = [...parsed.warnings, ...resolved.warnings];
       // The "default" profile is an identity overlay BY DESIGN: parse.ts
@@ -1325,7 +1384,12 @@ export default Plugin.define({
             { name }
           );
         }
-        const result = await applyProfile(name, { persist: true, emit: true, migrate: true });
+        const result = await applyProfile(name, {
+          persist: true,
+          emit: true,
+          migrate: true,
+          rescue: true,
+        });
         // runtimeActive now came from this set, not from launch detection.
         launchSuppressed = false;
         return result;

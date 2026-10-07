@@ -143,6 +143,24 @@ export default Plugin.define({
       };
     }
 
+    // Best-effort refresh of the TUI's own per-location agent-model cache. The
+    // core TUI derives each new session's model from this cache, which it
+    // refreshes only on an `agent.updated` event that carries a location; the
+    // profile transform's events carry none, so without this a switch leaves
+    // the TUI serving stale models to newly created sessions. Never throws.
+    async function refreshAgentCache(): Promise<void> {
+      try {
+        const directory = context.location?.directory;
+        if (typeof directory !== "string" || !directory) return;
+        const collection = context.data?.location?.agent;
+        if (!collection) return;
+        collection.invalidate({ directory });
+        await collection.sync({ directory });
+      } catch (err) {
+        degrade("agent cache refresh", err);
+      }
+    }
+
     // Stable claim id for THIS plugin load (one TUI window): random ASCII
     // matching the server's window schema ^[A-Za-z0-9_-]{1,64}$. crypto is the
     // preferred entropy source; the fallback is still ASCII and unique enough
@@ -301,6 +319,10 @@ export default Plugin.define({
       )) as ProfileCurrentResult;
       setActive(current.active);
       setAgents(current.agents ?? []);
+      // A window opened while another window already switched (or launched
+      // with `oc <profile>`) starts with a stale cache; refresh it once here
+      // so its first new session sees the active profile's models.
+      void refreshAgentCache();
     } catch (err) {
       context.ui.toast.show({
         message:
@@ -335,6 +357,10 @@ export default Plugin.define({
         if (data && Array.isArray(data.agents)) {
           setAgents(data.agents as ProfileAgentModelEntry[]);
         }
+        // A sibling window in the SAME location just switched; this window's
+        // TUI agent cache is equally stale, so refresh it too (fire-and-forget:
+        // the handler must not block the event bus).
+        void refreshAgentCache();
       });
       disposers.push(unsubscribe);
     } catch (err) {
@@ -354,6 +380,11 @@ export default Plugin.define({
         // may be filtered or lost, and this window's sidebar must still show
         // the switch. The agent list follows from a background refresh.
         setActive(result.active);
+        // The server registry now carries the new models; refresh this TUI's
+        // stale per-location agent cache so the next prompt-created session
+        // already sees them. Awaited so it lands before the user's next prompt
+        // is likely to create a session.
+        await refreshAgentCache();
         void (async () => {
           try {
             const current = (await rpc.current(

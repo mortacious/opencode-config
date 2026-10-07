@@ -26,12 +26,13 @@
         }
       }
     },
-    {
-      "package": "./plugin-src/lumo-supervisor",
-      "options": {
-        "checkoutDir": "~/.config/opencode/lumo-tamer"
-      }
-    },
+    // disabled: lumo-tamer server requires tamer auth; re-enable after running it
+    // {
+    //   "package": "./plugin-src/lumo-supervisor",
+    //   "options": {
+    //     "checkoutDir": "~/.config/opencode/lumo-tamer"
+    //   }
+    // },
     {
       "package": "./plugin-src/profile-switcher",
       "options": {

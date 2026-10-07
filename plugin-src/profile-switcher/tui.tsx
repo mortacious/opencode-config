@@ -14,10 +14,12 @@
 //   debounced when the open-tab set changes, once just before a profile
 //   switch, and once (empty) at cleanup. With tabs disabled or unreadable it
 //   falls back to the reactive session list.
-// - Sidebar slot (sidebar.content): renders "Profile: <active>", initialized
-//   from rpc current() and kept live by subscribing to the rpc "changed"
-//   event, applied only for events from this window's location; the
-//   subscription and the slot are unsubscribed in cleanup.
+// - Profile indicator slots: "sidebar.content" (session-gated) and
+//   "home.footer" (startup/home screen, session-less) both render
+//   "Profile: <active>", initialized from rpc current() and kept live by
+//   subscribing to the rpc "changed" event, applied only for events from this
+//   window's location; the subscription and both slots are unsubscribed in
+//   cleanup.
 //
 // Resilience: plugin setup runs OUTSIDE the host's Solid component tree, so
 // context.keymap.layer() cannot be called directly (it resolves a
@@ -594,6 +596,20 @@ export default Plugin.define({
       disposers.push(removeSlot);
     } catch (err) {
       degrade("sidebar slot", err);
+    }
+
+    // The home.footer slot is session-less, so the same ProfileSection shows
+    // the active profile on the startup/home screen where no session (and thus
+    // no sidebar.content) exists. Registered and degraded independently so a
+    // failure here never breaks the sidebar claim above.
+    try {
+      const removeHomeSlot = context.ui.slot({
+        append: "home.footer",
+        render: () => <ProfileSection />,
+      });
+      disposers.push(removeHomeSlot);
+    } catch (err) {
+      degrade("home footer slot", err);
     }
 
     // No post-setup "not registered" warning here: keymap registration is

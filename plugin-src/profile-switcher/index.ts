@@ -438,8 +438,8 @@ function baseModelRef(ref: string): string {
   return ref.split("#")[0];
 }
 
-// One tracked root session (child sessions are never migrated but are still
-// tracked so agent/model updates are observed).
+// One tracked session (roots AND child/subagent sessions). Both migrate under
+// the same consent rules; a running session keeps its model until it goes idle.
 interface TrackedSession {
   agent?: string;
   model?: string;
@@ -881,11 +881,12 @@ export default Plugin.define({
       return { map, applied, warnings };
     }
 
-    // Session migration: rewrite the persisted model of every tracked root
-    // session whose model matches (at provider/id granularity) the PREVIOUS
-    // profile target for its agent, switching it to the NEW target. Never
-    // throws. Serialized via migrationChain so overlapping switches cannot
-    // interleave.
+    // Session migration: rewrite the persisted model of every tracked session
+    // (roots AND child/subagent sessions - a profile switch must move subagent
+    // sessions too) whose model matches (at provider/id granularity) the
+    // PREVIOUS profile target for its agent, switching it to the NEW target.
+    // Never throws. Serialized via migrationChain so overlapping switches
+    // cannot interleave.
     async function migrateSessions(
       name: string,
       previous: Map<string, string>,
@@ -898,7 +899,6 @@ export default Plugin.define({
       let stale = 0;
       for (const [sessionID, session] of tracked) {
         try {
-          if (session.parentID) continue; // child sessions: excluded
           if (session.running) {
             skippedRunning++;
             continue;
@@ -1000,10 +1000,19 @@ export default Plugin.define({
           ? { locations: [] }
           : parseActiveStateFile(profilesDir, rawText);
       const global = parsed.global ?? legacyGlobal;
-      // Degenerate environment: no location to key on. Keep the legacy
-      // single-line global form so bin/oc still reads the new active profile.
+      // Degenerate environment: no location to key on. Write an EXPLICIT v1
+      // machine-wide global record (not a bare tab-less name, which the parser
+      // would reinterpret as an implicit global) so bin/oc and every instance
+      // still read the new active profile through the same atomic path.
+      // Preserve the location records already parsed (from the fresh re-read
+      // above) so this degenerate write cannot wipe other directories'
+      // profiles.
       if (!ownDirectory) {
-        atomicWriteActive(name + "\n");
+        const lines: string[] = ["global\t" + name];
+        for (const record of parsed.locations) {
+          lines.push("location\t" + record.directory + "\t" + record.name);
+        }
+        atomicWriteActive(lines.join("\n") + "\n");
         return;
       }
       const key = canonicalizeDirectory(ownDirectory);

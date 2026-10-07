@@ -52,9 +52,10 @@ export interface ProfilePopulateSession {
   agent?: string;
   model?: string;
   parentID?: string;
-  // The session's directory, sent by the TUI from its directory-filtered
-  // session list so the server can route the seed to the instance that owns
-  // that location. Absent on tabs-gap entries (resolved via session.get).
+  // The session's directory: stamped from the SESSION's own directory resolved
+  // via session.get, with the TUI's own directory used only as a fallback when
+  // the session's location is unknown, so the server can route the seed to the
+  // instance that owns that location.
   location?: string;
   // The claiming TUI window's id: the TUI tags the sessions open in this
   // window as tabs so the server instance can scope migration targets to the
@@ -202,7 +203,6 @@ export const Profile = Rpc.define({
                   type: "string",
                   minLength: 1,
                   maxLength: 64,
-                  pattern: "^[A-Za-z0-9_-]+$",
                 },
               },
               required: ["sessionID"],
@@ -213,7 +213,6 @@ export const Profile = Rpc.define({
             type: "string",
             minLength: 1,
             maxLength: 64,
-            pattern: "^[A-Za-z0-9_-]+$",
           },
           location: { type: "string" },
         },
@@ -272,7 +271,6 @@ export const Profile = Rpc.define({
                   type: "string",
                   minLength: 1,
                   maxLength: 64,
-                  pattern: "^[A-Za-z0-9_-]+$",
                 },
               },
               required: ["sessionID"],
@@ -283,7 +281,6 @@ export const Profile = Rpc.define({
             type: "string",
             minLength: 1,
             maxLength: 64,
-            pattern: "^[A-Za-z0-9_-]+$",
           },
           location: { type: "string" },
         },

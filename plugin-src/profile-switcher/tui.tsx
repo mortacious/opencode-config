@@ -5,10 +5,12 @@
 //   rpc.set. The result is toasted with the prefix "Profile switched: "
 //   including any fallback substitutions and warnings.
 // - Session claiming: this window claims ONLY the sessions currently open as
-//   tabs, each tagged with a stable per-plugin-load `window` id and this
-//   TUI's own directory. Every populate replaces this window's claim set on
-//   the server, so sessions whose tabs closed are pruned and migration stays
-//   scoped to this window; an empty list is a valid refresh. Claiming re-runs
+//   tabs, each tagged with a stable per-plugin-load `window` id and the
+//   session's OWN location directory (falling back to this TUI's directory
+//   when the session's location is unknown). Every populate replaces this
+//   window's claim set on the server, so sessions whose tabs closed are pruned
+//   and migration stays scoped to this window; an empty list is a valid
+//   refresh. Claiming re-runs
 //   debounced when the open-tab set changes, once just before a profile
 //   switch, and once (empty) at cleanup. With tabs disabled or unreadable it
 //   falls back to the reactive session list.
@@ -91,9 +93,10 @@ interface PopulateEntry {
   agent?: string;
   model?: string;
   parentID?: string;
-  // This TUI's own directory, so the server can route the seed to the plugin
-  // instance that owns the location (RPC routing between instances is not
-  // caller-guaranteed). Absent in a degenerate context with no directory.
+  // The SESSION's own directory (from session.get), so the server routes the
+  // seed to the plugin instance that owns that location. Falls back to this
+  // TUI's directory only when the session's own location is unknown. Absent
+  // in a degenerate context with neither.
   location?: string;
   // This window's stable claim id (see windowID): the server replaces this
   // window's whole claim set per populate, which is what prunes closed tabs.
@@ -106,6 +109,7 @@ interface SessionInfoLike {
   model?: unknown;
   parentID?: unknown;
   time?: { archived?: unknown };
+  location?: { directory?: unknown };
 }
 
 export default Plugin.define({
@@ -118,6 +122,26 @@ export default Plugin.define({
     const [agents, setAgents] = createSignal<ProfileAgentModelEntry[]>([]);
 
     const rpc = context.client.rpc(Profile);
+
+    // Per-call location scope for EVERY Profile RPC. The generated client
+    // forwards caller-supplied routing verbatim, and the live-verified routing
+    // key is the `x-opencode-directory` request header: an
+    // `opencode api ... -H 'x-opencode-directory: %2Ftmp'` call is served by
+    // the /tmp instance while an un-scoped one is served by the default
+    // instance. The client's typed `location?: { directory }` option was
+    // verified to serialize instead to the `location[directory]` QUERY PARAM -
+    // a different shape from the verified header - so it is deliberately NOT
+    // sent; the header is. Unknown TUI directory -> undefined -> today's
+    // un-scoped call.
+    function rpcOptions():
+      | { headers: { "x-opencode-directory": string } }
+      | undefined {
+      const directory = context.location?.directory;
+      if (typeof directory !== "string" || !directory) return undefined;
+      return {
+        headers: { "x-opencode-directory": encodeURIComponent(directory) },
+      };
+    }
 
     // Stable claim id for THIS plugin load (one TUI window): random ASCII
     // matching the server's window schema ^[A-Za-z0-9_-]{1,64}$. crypto is the
@@ -139,10 +163,14 @@ export default Plugin.define({
 
     // Candidate session ids for this window's claim. The open session tabs are
     // authoritative; when tabs are disabled or the tab read fails, fall back
-    // to the reactive data store's session list (best-effort). Throws only
-    // when NEITHER source is readable - the caller then skips the populate
-    // rather than sending an empty list, which would drop live claims.
-    function collectCandidateSessionIDs(): string[] {
+    // to the reactive data store's session list (best-effort), keeping only
+    // sessions that live in this TUI's own directory when that is known.
+    // Throws only when NEITHER source is readable - the caller then skips the
+    // populate rather than sending an empty list, which would drop live
+    // claims.
+    function collectCandidateSessionIDs(
+      ownDirectory: string | undefined
+    ): string[] {
       let tabsEnabled = false;
       try {
         tabsEnabled = context.ui.tabs.enabled();
@@ -162,7 +190,22 @@ export default Plugin.define({
       }
       const ids: string[] = [];
       for (const info of context.data.session.list()) {
-        if (typeof info?.id === "string") ids.push(info.id);
+        if (typeof info?.id !== "string") continue;
+        // The fallback source is the GLOBAL session list, not this window's
+        // tabs. When this TUI's directory is known, keep only sessions whose
+        // OWN location directory equals it; lenient when the session's own
+        // directory is unknown (accept). Unknown TUI directory -> the prior
+        // unfiltered behavior.
+        if (ownDirectory !== undefined) {
+          const sessionDirectory = info.location?.directory;
+          if (
+            typeof sessionDirectory === "string" &&
+            sessionDirectory !== ownDirectory
+          ) {
+            continue;
+          }
+        }
+        ids.push(info.id);
       }
       return ids;
     }
@@ -177,9 +220,11 @@ export default Plugin.define({
     async function populateTracker(): Promise<boolean> {
       try {
         const directory = context.location?.directory;
+        const ownDirectory =
+          typeof directory === "string" && directory ? directory : undefined;
         let candidateIDs: string[];
         try {
-          candidateIDs = collectCandidateSessionIDs();
+          candidateIDs = collectCandidateSessionIDs(ownDirectory);
         } catch {
           // Nothing was assembled: a spurious empty populate here would drop
           // this window's live claims.
@@ -202,14 +247,20 @@ export default Plugin.define({
             if (typeof info.parentID === "string" && info.parentID) continue;
             const model = serializeModel(info?.model);
             if (model === undefined) continue;
+            const sessionDirectory = info?.location?.directory;
             const entry: PopulateEntry = {
               sessionID: id,
               model,
               window: windowID,
             };
             if (typeof info.agent === "string") entry.agent = info.agent;
-            if (typeof directory === "string" && directory) {
-              entry.location = directory;
+            // Stamp the SESSION's OWN directory so the server routes the seed
+            // to the instance that owns it; fall back to this TUI's directory
+            // only when the session's own location is unknown.
+            if (typeof sessionDirectory === "string" && sessionDirectory) {
+              entry.location = sessionDirectory;
+            } else if (ownDirectory !== undefined) {
+              entry.location = ownDirectory;
             }
             entries.push(entry);
           } catch {
@@ -221,13 +272,16 @@ export default Plugin.define({
           // top-level window so even an empty refresh replaces this window's
           // claim set (prunes closed tabs); the top-level location routes it to
           // the instance owning this directory when the context knows it.
-          await rpc.populate({
-            sessions: entries.slice(0, 200),
-            window: windowID,
-            ...(typeof directory === "string" && directory
-              ? { location: directory }
-              : {}),
-          });
+          await rpc.populate(
+            {
+              sessions: entries.slice(0, 200),
+              window: windowID,
+              ...(ownDirectory !== undefined
+                ? { location: ownDirectory }
+                : {}),
+            },
+            rpcOptions()
+          );
           return true;
         } catch {
           // populate is best-effort; never break setup
@@ -241,7 +295,10 @@ export default Plugin.define({
     void populateTracker();
 
     try {
-      const current = (await rpc.current({})) as ProfileCurrentResult;
+      const current = (await rpc.current(
+        {},
+        rpcOptions()
+      )) as ProfileCurrentResult;
       setActive(current.active);
       setAgents(current.agents ?? []);
     } catch (err) {
@@ -289,14 +346,20 @@ export default Plugin.define({
         // Fresh claims for this window right before the switch: migration is
         // scoped to the sessions this window currently holds. Best effort.
         await populateTracker();
-        const result = (await rpc.set({ name })) as ProfileSetResult;
+        const result = (await rpc.set(
+          { name },
+          rpcOptions()
+        )) as ProfileSetResult;
         // Apply the result immediately: the location-stamped "changed" event
         // may be filtered or lost, and this window's sidebar must still show
         // the switch. The agent list follows from a background refresh.
         setActive(result.active);
         void (async () => {
           try {
-            const current = (await rpc.current({})) as ProfileCurrentResult;
+            const current = (await rpc.current(
+              {},
+              rpcOptions()
+            )) as ProfileCurrentResult;
             setActive(current.active);
             setAgents(current.agents ?? []);
           } catch {
@@ -347,7 +410,10 @@ export default Plugin.define({
                   return;
                 }
                 try {
-                  const list = (await rpc.list({})) as ProfileListResult;
+                  const list = (await rpc.list(
+                    {},
+                    rpcOptions()
+                  )) as ProfileListResult;
                   const choice = await context.ui.dialog.select({
                     title: "Switch profile",
                     current: list.active,
@@ -512,13 +578,16 @@ export default Plugin.define({
       const directory = context.location?.directory;
       try {
         void rpc
-          .populate({
-            sessions: [],
-            window: windowID,
-            ...(typeof directory === "string" && directory
-              ? { location: directory }
-              : {}),
-          })
+          .populate(
+            {
+              sessions: [],
+              window: windowID,
+              ...(typeof directory === "string" && directory
+                ? { location: directory }
+                : {}),
+            },
+            rpcOptions()
+          )
           .catch(() => {
             // cleanup must never reject
           });

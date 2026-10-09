@@ -17,16 +17,36 @@
 //     SessionInfo.model (the same providerID + id match the built-in
 //     contextUsage util uses), with ModelInfo.name as the display name and
 //     ModelInfo.limit.context as the context window.
-//   - SessionInfo.tokens (input + output + reasoning + cache.read +
-//     cache.write - the v1 formula) gives live token usage; SessionInfo.cost
-//     gives spend.
+//   - The context figure (tokens + percent-of-context) comes from the newest
+//     assistant message's tokens for the child session, using the same 5-field
+//     formula (input + output + reasoning + cache.read + cache.write) as the
+//     built-in context indicator, divided by ModelInfo.limit.context.
+//     SessionInfo.tokens is NOT used for the percentage: the v2 server computes
+//     it as the session-wide cumulative total across all messages, so it grows
+//     without bound and overshoots the context window. SessionInfo.tokens
+//     remains only a fallback when no message tokens are obtainable (e.g. a
+//     brand-new session before its first assistant message).
+//   - SessionInfo.cost gives spend (cumulative, matching OpenCode's own cost
+//     display).
 //
 // The store does not update child tokens mid-run, so while at least one child
-// is running a 2s poll calls context.client.session.get({ sessionID }) for each
-// running child and holds the returned tokens/cost/model in a local map that
-// takes precedence over the store; entries are dropped once a child stops
-// running (the store's final values then win). When nothing runs, the poll
-// makes no network calls.
+// is running a 2s poll calls context.client.session.get({ sessionID }) plus a
+// lightweight context.client.message.list({ sessionID, limit: 1, order: "desc",
+// type: "assistant" }) for each running child, and holds the newest assistant
+// message's tokens plus the store's cost/model in a local map that takes
+// precedence over the store; entries are dropped once a child stops running.
+// Each poll also writes those message tokens into the shared per-child cache
+// (finishedTokens), so a finished child's figure is the last message-level
+// value observed during its run rather than the warm-up value fetched at the
+// start. Children that were already finished at load fetch their last assistant
+// message tokens once, cached by child id, when their row is first rendered; a
+// running child with no live entry yet also kicks off that same one-shot cached
+// fetch so the message-level figure shows within one round-trip instead of
+// waiting up to 2s. When nothing runs, the poll makes no network calls.
+//
+// context.client.message.list() returns SessionMessagesResponse; with
+// limit: 1 / order: "desc" / type: "assistant" the newest assistant message is
+// data[0], and the tokens are read straight from it (no transcript download).
 //
 // A one-shot supplement enumerates the open session's children through
 // context.client.session.list({ directory, parentID, limit, cursor }) and merges
@@ -174,7 +194,77 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
   // a 2s poll (below); entries are removed as soon as a child stops running so
   // completed children fall back to the store's final values.
   const [live, setLive] = createSignal<Map<string, LiveUsage>>(new Map());
+  // Newest assistant message tokens, keyed by child id. Seeded once when a
+  // child's row is first rendered (finished children to restore the per-message
+  // figure; a running child as a warm-up before its first poll entry), then
+  // kept fresh by the running-child poll so a finished child shows the last
+  // message-level value observed during its run. The reactive store carries
+  // only the cumulative SessionInfo.tokens, so this avoids showing that
+  // overshoot (and avoids refetching on every render).
+  const [finishedTokens, setFinishedTokens] = createSignal<
+    Map<string, TokenUsageInfo>
+  >(new Map());
+  const finishedRequested = new Set<string>();
   let refreshing = false;
+
+  // One-shot fetch of the newest assistant message tokens for a child session,
+  // using the lightweight message.list endpoint (limit 1, newest first, only
+  // assistant messages) instead of downloading the child's whole transcript via
+  // session.context(). Failures fall back to the store's SessionInfo.tokens.
+  async function fetchLatestAssistantTokens(
+    id: string
+  ): Promise<TokenUsageInfo | undefined> {
+    const res = await context.client.message.list({
+      sessionID: id,
+      limit: 1,
+      order: "desc",
+      type: "assistant",
+    });
+    const message = res?.data?.[0];
+    if (!message || message.type !== "assistant") return undefined;
+    return message.tokens;
+  }
+
+  // Store the newest assistant message tokens for a child in the shared cache.
+  // Shared by the one-shot fetch and the running-child poll so a finished
+  // child's displayed figure is the last message-level value observed during
+  // its run, not the warm-up value fetched at the start.
+  function cacheFinishedTokens(id: string, tokens: TokenUsageInfo): void {
+    setFinishedTokens((prev) => {
+      const next = new Map(prev);
+      next.set(id, tokens);
+      return next;
+    });
+  }
+
+  // One-shot (per child) fetch of the newest assistant message tokens, cached
+  // by child id. Failures fall back to the store's SessionInfo.tokens.
+  async function fetchFinishedTokens(id: string): Promise<void> {
+    try {
+      const tokens = await fetchLatestAssistantTokens(id);
+      if (!tokens) return;
+      // Do not clobber a fresher value the running-child poll may have cached
+      // while this warm-up fetch was in flight.
+      if (finishedTokens().has(id)) return;
+      cacheFinishedTokens(id, tokens);
+    } catch {
+      // best-effort; the store fallback covers the rest
+    }
+  }
+
+  // Returns cached message tokens for any child, kicking off the one-time fetch
+  // on first request. Used for finished children and as a warm-up for a running
+  // child that has no live poll entry yet. Plain Set guards against repeated
+  // fetches across re-renders (including the "no tokens found" case).
+  function ensureFinishedTokens(id: string): TokenUsageInfo | undefined {
+    const cached = finishedTokens().get(id);
+    if (cached) return cached;
+    if (!finishedRequested.has(id)) {
+      finishedRequested.add(id);
+      void fetchFinishedTokens(id);
+    }
+    return undefined;
+  }
 
   async function refreshLive(): Promise<void> {
     try {
@@ -197,17 +287,31 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
             sessionID: child.id,
           });
           const info = (res as { data?: SessionInfo })?.data ?? res;
+          // Prefer the newest assistant message's tokens (matches the built-in
+          // context indicator); SessionInfo.tokens is the cumulative session
+          // total and is used only as a fallback.
+          let msgTokens: TokenUsageInfo | undefined;
+          try {
+            msgTokens = await fetchLatestAssistantTokens(child.id);
+          } catch {
+            msgTokens = undefined;
+          }
+          const tokens = msgTokens ?? info?.tokens;
+          // Keep the shared cache fresh while running so the value survives the
+          // live-entry drop when the child finishes (only message-level tokens,
+          // never the cumulative SessionInfo.tokens fallback).
+          if (msgTokens) cacheFinishedTokens(child.id, msgTokens);
           next.set(child.id, {
-            tokens: info?.tokens,
+            tokens,
             cost: info?.cost,
             modelRef: info?.model,
           });
-          if (totalTokens(prior?.tokens) !== totalTokens(info?.tokens)) {
+          if (totalTokens(prior?.tokens) !== totalTokens(tokens)) {
             console.info(
               "[subagent-view.tui] live " +
                 JSON.stringify({
                   sessionID: child.id,
-                  tokens: totalTokens(info?.tokens),
+                  tokens: totalTokens(tokens),
                   cost: info?.cost,
                 })
             );
@@ -326,9 +430,18 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
     const agent =
       typeof info.agent === "string" && info.agent ? info.agent : "subagent";
     const model = resolveModel(context, liveEntry?.modelRef ?? info.model);
+    // Running children use the poll's newest-assistant-message tokens; until the
+    // first poll result arrives they also use the one-shot cached fetch as a
+    // warm-up. Finished children use the shared cache, which the poll kept
+    // updated while they ran (or the one-shot fetch if they finished at load).
+    // SessionInfo.tokens is only the fallback when no message tokens are
+    // obtainable.
+    const tokens = running
+      ? (liveEntry?.tokens ?? ensureFinishedTokens(info.id) ?? info.tokens)
+      : (ensureFinishedTokens(info.id) ?? info.tokens);
     const parts = [
       (running ? "* " : "  ") + agent,
-      usageText(liveEntry?.tokens ?? info.tokens, model.contextLimit),
+      usageText(tokens, model.contextLimit),
       model.label,
       costText(liveEntry?.cost ?? info.cost),
     ];

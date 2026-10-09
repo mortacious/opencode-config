@@ -30,7 +30,7 @@ Personal opencode configuration. Managed as a private git repo for deployment ac
 
 ## What lives where
 
-See `AGENTS.md` for the authoritative layout map and the Fusion delegation pattern that governs how the agents (`build`, `plan`, `sidekick`, `explore`, `research`, `design`, `reviewer`, `sparring`, `vision`) divide planning from execution.
+See `REPO.md` for the authoritative layout map and `AGENTS.md` for the Fusion delegation pattern that governs how the agents (`build`, `plan`, `sidekick`, `explore`, `research`, `design`, `reviewer`, `sparring`, `vision`) divide planning from execution.
 
 ## Profiles
 

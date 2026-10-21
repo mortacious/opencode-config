@@ -1,0 +1,23 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agents": {
+    "sparring": {
+      "model": "openrouter/deepseek/deepseek-v4.1-flash-1017"
+    },
+    "reviewer": {
+      "model": "openrouter/deepseek/deepseek-v4.1-flash-1017"
+    },
+    "sidekick": {
+      "model": "openrouter/deepseek/deepseek-v4.1-flash-1017"
+    },
+    "explore": {
+      "model": "openrouter/deepseek/deepseek-v4.1-flash-1017"
+    },
+    "research": {
+      "model": "openrouter/deepseek/deepseek-v4.1-flash-1017"
+    },
+    "advisor": {
+      "model": "openrouter/deepseek/deepseek-v4.1-flash-1017"
+    }
+  }
+}

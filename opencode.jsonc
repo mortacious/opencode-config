@@ -183,6 +183,15 @@
           ]
         }
       }
+    },
+    // OpenRouter pinned to EU in-region routing + zero data retention (ZDR), no data collection, fp8-or-better quantization floor only
+    "openrouter": {
+      "settings": {
+        "baseURL": "https://eu.openrouter.ai/api/v1"
+      },
+      "body": {
+        "provider": { "zdr": true, "data_collection": "deny", "quantizations": ["fp8", "fp16", "bf16", "fp32"] }
+      }
     }
   }
 }

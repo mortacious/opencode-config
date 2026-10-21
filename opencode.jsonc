@@ -41,7 +41,14 @@
         }
       }
     },
-    "./plugin-src/subagent-view"
+    "./plugin-src/subagent-view",
+    {
+      "package": "./plugin-src/subagent-cap",
+      "options": {
+        "max": 0,
+        "profiles": { "cheap-local": 3 }
+      }
+    }
   ],
   // lsp: dropped in v2 port - not a documented v2 top-level key
   // Auto-allow the shared knowledge dir so agents loading web-search
@@ -184,11 +191,8 @@
         }
       }
     },
-    // OpenRouter pinned to EU in-region routing + zero data retention (ZDR), no data collection, fp8-or-better quantization floor only
+    // OpenRouter with zero data retention (ZDR), no data collection, fp8-or-better quantization floor only
     "openrouter": {
-      "settings": {
-        "baseURL": "https://eu.openrouter.ai/api/v1"
-      },
       "body": {
         "provider": { "zdr": true, "data_collection": "deny", "quantizations": ["fp8", "fp16", "bf16", "fp32"] }
       }

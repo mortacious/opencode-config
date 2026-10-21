@@ -319,6 +319,18 @@ else
   echo "OK: subagent-view plugin deps installed."
 fi
 
+# --- subagent-cap plugin package (plugin-src/subagent-cap) ---
+# Registered in opencode.jsonc "plugins" as an object entry with options:
+# { "package": "./plugin-src/subagent-cap", options: {...} }. It is a local
+# plugin package with its own dependency (@opencode/plugin), resolved from its
+# own node_modules - so it needs its own install step here.
+echo "Installing subagent-cap plugin deps (plugin-src/subagent-cap)..."
+if ! ( cd "$CONFIG_DIR/plugin-src/subagent-cap" && npm install --no-audit --no-fund ); then
+  echo "WARNING: failed to install subagent-cap plugin deps; the plugin will not load." >&2
+else
+  echo "OK: subagent-cap plugin deps installed."
+fi
+
 # --- opencode plugins ---
 # Note: the npm-listed plugin in opencode.jsonc "plugins" array
 # (@tarquinen/opencode-dcp) is resolved by opencode itself on first run - it does

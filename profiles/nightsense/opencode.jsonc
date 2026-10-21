@@ -1,23 +1,38 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "agents": {
+    "build": {
+      "model": "opencode-go/glm-5.3-flash#max"
+    },
+    "plan": {
+      "model": "opencode-go/glm-5.3-flash#max"
+    },
+    "worker": {
+      "model": "opencode-go/glm-5.3-flash#max"
+    },
     "sparring": {
-      "model": "openrouter/deepseek/deepseek-v4.1-flash-1017"
+      "model": "openrouter/deepseek/deepseek-v4.1-flash-1017#max"
     },
     "reviewer": {
-      "model": "openrouter/deepseek/deepseek-v4.1-flash-1017"
+      "model": "openrouter/deepseek/deepseek-v4.1-flash-1017#max"
     },
     "sidekick": {
-      "model": "openrouter/deepseek/deepseek-v4.1-flash-1017"
+      "model": "openrouter/deepseek/deepseek-v4.1-flash-1017#max"
     },
     "explore": {
-      "model": "openrouter/deepseek/deepseek-v4.1-flash-1017"
+      "model": "openrouter/deepseek/deepseek-v4.1-flash-1017#max"
     },
     "research": {
-      "model": "openrouter/deepseek/deepseek-v4.1-flash-1017"
+      "model": "openrouter/deepseek/deepseek-v4.1-flash-1017#max"
     },
     "advisor": {
-      "model": "openrouter/deepseek/deepseek-v4.1-flash-1017"
+      "model": "openrouter/deepseek/deepseek-v4.1-flash-1017#max"
+    },
+    "design": {
+      "model": "opencode-go/gpt-5.6-luna#max"
+    },
+    "vision": {
+      "model": "opencode-go/gpt-5.6-luna#max"
     }
   }
 }

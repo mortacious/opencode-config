@@ -1,3 +1,16 @@
 {
-  "$schema": "https://raw.githubusercontent.com/Opencode-DCP/opencode-dynamic-context-pruning/master/dcp.schema.json"
+  "$schema": "https://raw.githubusercontent.com/Opencode-DCP/opencode-dynamic-context-pruning/master/dcp.schema.json",
+  "compress": {
+    "minContextLimit": "65%",
+    "maxContextLimit": "85%",
+    "modelMinLimits": {
+      "Amenable Thor 1/unsloth/Qwen3.8-27B-NVFP4": 50000
+    },
+    "modelMaxLimits": {
+      "opencode-go/gpt-5.6-luna": "78%",
+      "Amenable Thor 1/unsloth/Qwen3.8-27B-NVFP4": 100000
+    },
+    "nudgeFrequency": 10,
+    "iterationNudgeThreshold": 25
+  }
 }

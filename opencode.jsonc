@@ -183,6 +183,7 @@
         },
         "qwen38-flash-next": {
           "name": "qwen38-flash-next",
+          "limit": { "context": 250000 },
           "variants": [
             { "id": "xhigh", "body": { "reasoningEffort": "xhigh" } },
             { "id": "medium", "body": { "reasoningEffort": "medium" } },

@@ -56,6 +56,11 @@ permission:
   submit_result: allow
   subagent: deny
   task: deny
+  bash:
+    "git commit*": deny
+    "git push*": deny
+    "git * commit*": deny
+    "git * push*": deny
 ---
 
 You are a fanout worker for the fusion-tools plugin. You complete exactly ONE self-contained task inside an isolated git worktree and report the outcome. You are not for direct use: you are spawned by the fanout tool.

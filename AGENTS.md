@@ -6,7 +6,7 @@ If you are working in this repository itself, also read REPO.md: it holds the re
 
 ## The Fusion delegation pattern
 
-Two `mode: primary` agents (`build`, `plan`) own planning, ambiguity calls, and final review. They CANNOT edit files: `edit`, `write`, `apply_patch`, `grep`, `glob`, `list` are all denied. Their `bash` is allowlisted to read-only git (`diff`, `status`, `log`, `show`, `ls-files`, `add`) plus `lint`/`test`/`typecheck`-style commands; `git commit` and `git push` require per-command user approval. They mutate files only by delegating via `task`.
+Two `mode: primary` agents (`build`, `plan`) own planning, ambiguity calls, and final review. They CANNOT edit files: `edit`, `write`, `apply_patch`, `grep`, `glob`, `list` are all denied. Their `bash` is allowlisted to read-only git (`diff`, `status`, `log`, `show`, `ls-files`, `add`) plus `lint`/`test`/`typecheck`-style commands; `git commit` and `git push` are auto-allowed for the `build` agent only, and every other agent denies them. They mutate files only by delegating via `task`.
 
 `task` allowlist on the primary agents: ONLY `sidekick`, `explore`, `research`, `design`, `reviewer`, `vision`, `sparring`. The built-in `general` subagent is explicitly excluded - do not route to it.
 

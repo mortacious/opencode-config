@@ -88,13 +88,18 @@ permissions:
   - action: execute
     resource: "*"
     effect: allow
-  # Legacy permission map: v2 `permissions` arrays are inert for built-in-ID overrides in opencode 2.0.18; legacy maps append effective rules.
+  # Legacy permission map: v2 `permissions` arrays are inert for built-in-ID overrides in opencode 2.0.18; legacy maps append effective rules. The commit/push denies must live here to bind at runtime.
 permission:
   execute: allow
   ddgs_search_text: allow
   ddgs_extract_content: allow
   subagent: deny
   task: deny
+  bash:
+    "git commit*": deny
+    "git push*": deny
+    "git * commit*": deny
+    "git * push*": deny
 ---
 
 You are a file search specialist. You excel at thoroughly navigating and exploring codebases.

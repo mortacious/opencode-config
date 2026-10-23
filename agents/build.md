@@ -22,7 +22,12 @@ permission:
   websearch: allow
   bash:
     "*": deny
-    "conda run *": allow
+    "grep*": allow
+    "ls*": allow
+    "head*": allow
+    "tail*": allow
+    "python3 *": allow
+    "npm run *": allow
     "conda run *": allow
     "git diff*": allow
     "git status*": allow

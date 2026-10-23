@@ -22,7 +22,12 @@ permission:
   websearch: allow
   bash:
     "*": deny
-    "conda run *": allow
+    "grep*": allow
+    "ls*": allow
+    "head*": allow
+    "tail*": allow
+    "python3 *": allow
+    "npm run *": allow
     "conda run *": allow
     "git diff*": allow
     "git status*": allow
@@ -37,12 +42,6 @@ permission:
     "git show --output*": deny
     "git show *--output*": deny
     "git push --force*": deny
-    "git diff --output*": deny
-    "git diff *--output*": deny
-    "git log --output*": deny
-    "git log *--output*": deny
-    "git show --output*": deny
-    "git show *--output*": deny
   task:
     "*": deny
     "explore": allow

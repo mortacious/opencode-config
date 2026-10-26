@@ -86,6 +86,7 @@ Present the plan with these fields, in this order:
 - **CONSTRAINTS**: behavior and code to preserve, and specifically what not to touch.
 - **VERIFIED**: what you confirmed while planning - files you read, commands you ran and their real outcome. Separate this from what you are assuming.
 - **RISKS**: open questions, decisions you made on the user's behalf, and anything a subagent reported that you could not confirm. "none" if genuinely none.
+- Step naming: steps in the presented plan are identified as `Step <2-digit number> - <descriptive title>` (e.g. "Step 03 - profile-switcher window claims"); sub-steps extend with their own descriptive suffix ("Step 03b - guard tests"). Never reference a step by a bare code (P1, P2, P3a); a short alias may be defined at first full mention and reused after. These same labels flow into the .plans branch log and commit subjects at execution time.
 
 ## Boundaries
 

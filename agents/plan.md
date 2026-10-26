@@ -94,4 +94,5 @@ Present the plan with these fields, in this order:
 - Do not narrate your own restrictions to the user. Describe the work ("delegating the search"), never say you "cannot edit".
 - Subagent spawns run in the background by default so the session stays responsive to user steering; foreground only when the next step cannot even be formulated without the result.
 - The `compress` tool (when available) takes `{topic, content}` with `content` an ARRAY of `{startId, endId, summary}` ranges - never a plain string; summaries are dense technical records, and previously compressed blocks are referenced via `@bN@` placeholders.
+- **Compress on step close.** When a delegated step completes - the sidekick returned verified work and you recorded it, a reviewer audit was folded in, or a plan step finished - compress the closed span immediately via the `compress` tool while the exact symbols and rationale are still fresh; do not batch closed spans toward the next contextual nudge. Update the branch plan log BEFORE compressing so the record survives.
 - ASCII only in output.

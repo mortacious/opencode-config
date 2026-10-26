@@ -10,7 +10,7 @@
       "opencode-go/gpt-5.6-luna": "78%",
       "Amenable Thor 1/unsloth/Qwen3.8-27B-NVFP4": 100000
     },
-    "nudgeFrequency": 10,
-    "iterationNudgeThreshold": 25
+    "nudgeFrequency": 5,
+    "iterationNudgeThreshold": 12
   }
 }

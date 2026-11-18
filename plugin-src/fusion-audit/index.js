@@ -1,9 +1,9 @@
 // fusion-audit: read-only observability for the Fusion delegation tree.
-// opencode's tool hooks do NOT expose the calling agent, so this plugin
-// cannot enforce who-does-what (permissions do that). It logs the shape of
-// delegation - subagent sessions as they spawn, and edit/write/apply_patch tool calls -
-// so a maintainer can audit that the main agent delegated instead of editing.
-// Logs go through console under the service prefix "fusion-audit"; view them in
+// Permissions enforce who-does-what; this plugin only makes the shape of a
+// session auditable. It logs subagent sessions as they spawn, the
+// edit/write/apply_patch/task tool calls, and skill tool calls (agent + skill
+// id) so a skill that was never loaded is visible instead of silent. Logs go
+// through console under the service prefix "fusion-audit"; view them in
 // opencode's logs. This is an aid on top of the ground-truth session DB.
 
 // v2 port of the opencode plugin SDK (v1 exported an async ({ client }) => hooks
@@ -52,6 +52,15 @@ const appendSink = (record) => {
   } catch {
     // still failing - give up silently
   }
+};
+
+// The built-in skill tool takes { id } (opencode.tool.skill); { name } is
+// accepted too so a schema rename cannot silently blank the audit field.
+const skillIDOf = (input) => {
+  if (!input || typeof input !== "object") return undefined;
+  if (typeof input.id === "string" && input.id) return input.id;
+  if (typeof input.name === "string" && input.name) return input.name;
+  return undefined;
 };
 
 export default Plugin.define({
@@ -217,12 +226,26 @@ export default Plugin.define({
       }
     })();
 
-    // Aggregate the file-mutating and delegation tools for the audit trail.
-    // "apply_patch" is the third mutation tool gated by the edit permission.
-    // The hook call resolves to a Registration whose dispose must be awaited
-    // during cleanup, or the tool hook stays registered after the plugin
-    // releases everything else.
+    // Aggregate the file-mutating, delegation, and skill-loading tools for
+    // the audit trail. "apply_patch" is the third mutation tool gated by the
+    // edit permission. The hook call resolves to a Registration whose dispose
+    // must be awaited during cleanup, or the tool hook stays registered after
+    // the plugin releases everything else.
     const toolHookRegistration = await ctx.tool.hook("execute.after", async (input) => {
+      if (input.tool === "skill") {
+        // The skill tool is the observable "this skill actually ran" signal:
+        // log who loaded which skill (and whether the load succeeded) next to
+        // the edit/delegation trail, so a session that never loaded its
+        // skills is visible instead of silent.
+        log("skill loaded", {
+          tool: input.tool,
+          sessionID: input.sessionID,
+          agent: input.agent,
+          skillID: skillIDOf(input.input),
+          status: input.status,
+        });
+        return;
+      }
       if (
         input.tool === "edit" ||
         input.tool === "write" ||

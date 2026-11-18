@@ -271,6 +271,17 @@ else
   echo "OK: fusion-audit plugin deps installed."
 fi
 
+# --- fusion-bootstrap plugin package (plugin-src/fusion-bootstrap) ---
+# Registered in opencode.jsonc "plugins" as "./plugin-src/fusion-bootstrap". It
+# is a local plugin package with its own dependency (@opencode/plugin),
+# resolved from its own node_modules - so it needs its own install step here.
+echo "Installing fusion-bootstrap plugin deps (plugin-src/fusion-bootstrap)..."
+if ! ( cd "$CONFIG_DIR/plugin-src/fusion-bootstrap" && npm install --no-audit --no-fund ); then
+  echo "WARNING: failed to install fusion-bootstrap plugin deps; the plugin will not load." >&2
+else
+  echo "OK: fusion-bootstrap plugin deps installed."
+fi
+
 # --- fusion-tools plugin package (plugin-src/fusion-tools) ---
 # Registered in opencode.jsonc "plugins" as an object entry with options:
 # { "package": "./plugin-src/fusion-tools", options: {...} }. It is a local

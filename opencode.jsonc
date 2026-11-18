@@ -7,6 +7,7 @@
   "plugins": [
     "@tarquinen/opencode-dcp@latest",
     "./plugin-src/fusion-audit",
+    "./plugin-src/fusion-bootstrap",
     {
       "package": "./plugin-src/fusion-tools",
       "options": {
@@ -54,9 +55,8 @@
   // Auto-allow the shared knowledge dir so agents loading web-search
   // strategy modules via read don't prompt for external_directory access.
   // Scope is narrow: .env (one level up, gitignored) stays blocked.
-  "permissions": [ { "action": "external_directory", "resource": "~/.config/opencode/knowledge/**", "effect": "allow" },
-    { "action": "shell", "resource": "git commit*", "effect": "deny" },
-    { "action": "shell", "resource": "git push*", "effect": "deny" }
+  "permissions": [
+    { "action": "external_directory", "resource": "~/.config/opencode/knowledge/**", "effect": "allow" }
   ],
   "mcp": {
     "servers": {
@@ -113,6 +113,9 @@
     },
     "plan": {
       "model": "opencode-go/glm-5.3-flash"
+    },
+    "worker": {
+      "model": "opencode-go/deepseek-v4.1-flash"
     },
     "sparring": {
       "model": "opencode-go/deepseek-v4.1-flash"

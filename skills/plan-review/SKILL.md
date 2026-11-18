@@ -1,152 +1,113 @@
 ---
 name: plan-review
-description: Criteria for reviewing implementation plans against quality standards
+description: Use when reviewing an implementation plan before execution - checking that decisions are sourced, the plan is complete, and its tasks are actionable. Reports findings as blocker / concern / nit against the plan's own steps. Do not use for auditing a code diff (use fusion-code-review) or for executing the plan.
 ---
 
 # Plan Review
 
-> **Load this skill** when reviewing implementation plans (not code).
+## Overview
 
-## TL;DR
-Systematic plan review focused on 3 quality categories: Citation Quality, Completeness, and Actionability. Structure is pre-validated by `plan_save`—focus on whether the plan provides actionable implementation guidance.
+A plan is ready when another agent can execute it without re-deriving the decisions: the goal is measurable, the steps are ordered and specific, and its assumptions are checked against the real code rather than restated.
 
-## When to Use This Skill
-- When reviewing implementation plans before execution
-- When auditing plan quality after creation
-- When verifying plans meet documentation standards
-- As part of the plan validation workflow
+## When to Use
 
----
+- Before execution starts on a non-trivial or risky plan.
+- When auditing plan quality after it was drafted.
+- When a retry loop suggests the plan, not the executor, is the problem.
 
-## Plan Review Checklist
+Do not use for diff review, style review, or for executing or editing the plan.
 
-### 1. Structure (Pre-validated)
+## Core Pattern
 
-> **Note:** Saved plans are structurally validated by `plan_save` before storage.
-> Format compliance (YAML frontmatter, status markers, CURRENT marker, numbering) is guaranteed.
-> Focus your review on the quality aspects below.
+1. Read the plan and list every claim it makes about the current code.
+2. Check those claims against the files the plan references - do not take the plan's word for the code.
+3. Score three categories: citation quality, completeness, actionability.
+4. Assign each finding a severity, name its location (the plan step or section), and report.
 
-### 2. Citation Quality
+## Quick Reference
 
-| Requirement | Check |
-|-------------|-------|
-| Decisions reference sources | `ref:delegation-id` format used |
-| No unsubstantiated claims | Architectural decisions cite research |
-| Research phases show refs | Completed research tasks include citations |
-| Citations are verifiable | IDs match actual delegation outputs |
-
-**Red Flags:**
-- Decisions table with empty or `-` in Source column
-- Claims like "industry standard" or "best practice" without citation
-- Research tasks marked complete without `→ ref:id`
-
-### 3. Completeness
+### 1. Citation Quality
 
 | Requirement | Check |
-|-------------|-------|
+| --- | --- |
+| Decisions reference sources | Each architectural choice names its source: a reference id, `file:line`, a URL, or observed command output |
+| No unsubstantiated claims | No "industry standard" or "best practice" without a citation |
+| Research steps show sources | Completed research tasks cite what was read |
+| Citations are verifiable | Each cited id resolves to an actual output |
+
+Red flags:
+
+- A decisions table with empty or `-` in the source column.
+- Claims like "industry standard" with nothing behind them.
+- Research tasks marked complete with no cited source.
+
+### 2. Completeness
+
+| Requirement | Check |
+| --- | --- |
 | Goal is specific | Measurable outcome, not vague intent |
 | Phases are logical | Sequential, with clear progression |
-| Edge cases considered | Error handling, failure modes addressed |
-| Notes section present | Key decisions and observations documented |
-| Context & Decisions table | Captures architectural choices with rationale |
+| Edge cases considered | Error handling and failure modes addressed |
+| Assumptions checked | Claims about the code match the code |
+| Decisions captured | Key choices recorded with rationale |
 
-**Goal Quality Examples:**
-- ❌ "Improve authentication" (vague)
-- ❌ "Make it better" (unmeasurable)
-- ✅ "Add JWT authentication with refresh token support" (specific)
-- ✅ "Migrate user table to PostgreSQL with zero downtime" (measurable)
+Goal examples:
 
-### 4. Actionability
+- Bad: "Improve authentication" (vague).
+- Bad: "Make it better" (unmeasurable).
+- Good: "Add JWT authentication with refresh token support" (specific).
+- Good: "Migrate the user table to PostgreSQL with zero downtime" (measurable).
+
+### 3. Actionability
 
 | Requirement | Check |
-|-------------|-------|
-| Tasks are specific | Clear what file/component is affected |
-| No ambiguous tasks | Avoids "investigate" or "figure out" without scope |
+| --- | --- |
+| Tasks are specific | Clear which file or component is affected |
+| No ambiguous tasks | No "investigate" or "figure out" without a scope |
 | Dependencies clear | Sequential tasks show logical order |
-| Implementation path obvious | Developer can start without clarification |
+| Verification present | Each risky step names how it is proven |
+| Path is obvious | An executor can start without clarification |
 
-**Actionability Examples:**
-- ❌ "Set up the backend" (too vague)
-- ❌ "Make it work" (no implementation path)
-- ✅ "Create `src/auth/jwt.ts` with sign/verify functions" (specific file)
-- ✅ "Add bcrypt password hashing to `UserService.create()`" (clear scope)
+Actionability examples:
 
----
+- Bad: "Set up the backend" (too vague).
+- Bad: "Make it work" (no implementation path).
+- Good: "Create `src/auth/jwt.ts` with sign/verify functions" (specific file).
+- Good: "Add bcrypt password hashing to `UserService.create()`" (clear scope).
 
-## Severity Classification
+## Severity
 
-| Severity | Icon | Criteria | Action Required |
-|----------|------|----------|-----------------|
-| Critical | 🔴 | Missing citations for key decisions, no clear goal, unactionable tasks | Must fix before execution |
-| Major | 🟠 | Vague tasks, incomplete phases, missing edge case handling | Should fix |
-| Minor | 🟡 | Missing notes, unclear dependencies, incomplete rationale | Nice to fix |
-| Nitpick | 🟢 | Style preferences, wording suggestions | Optional |
+Only three levels. Do not invent others.
 
----
+| Severity | Meaning | Action |
+| --- | --- | --- |
+| blocker | Missing citations on key decisions, no clear goal, unactionable or contradictory tasks, an assumption the code contradicts | Must be fixed before execution |
+| concern | Vague tasks, incomplete phases, missing edge-case handling, no verification step on a risky change | Should be fixed or explicitly accepted |
+| nit | Missing notes, unclear ordering, incomplete rationale, wording | Optional |
 
-## Output Format
+## Report Format
 
-Structure your plan review as:
+Return exactly these fields, in this order:
 
-```markdown
-## Plan Review
+- **STATUS**: one of pass | changes needed | blocked | escalate
+- **FINDINGS**: one line per issue, ordered blocker first, each tagged `[blocker]`, `[concern]`, or `[nit]`, with its plan location and the concrete fix you suggest. "none" if the plan passes.
+- **VERIFIED**: what you read to check the plan (files opened, assumptions confirmed), separated from inference
+- **GAPS**: what you could not judge and why, or "none"
 
-### Files Reviewed
-- `PLAN.md` (or plan content from `plan_read`)
+Include at least one substantive observation, positive or negative, so the report cannot be a content-free approval.
 
-### Overall Assessment
-APPROVE | REQUEST_CHANGES | NEEDS_DISCUSSION
+## Common Mistakes
 
-### Summary
-2-3 sentence overview of plan quality.
+- Taking the plan's description of the code as true instead of reading the files.
+- Reviewing format or markdown structure instead of content quality.
+- Evaluating code style; that is diff review, not plan review.
+- Accepting a vague goal or an ambiguous task because the rest of the plan looks good.
+- Marking everything a blocker; severity exists to order the fixes, not to dramatize them.
+- Skipping the citation check for decisions, which is where most plan defects hide.
 
-### Issues
+## Rules
 
-#### 🔴 Critical
-- [Issue description with specific location]
-
-#### 🟠 Major
-- [Issue description with specific location]
-
-#### 🟡 Minor
-- [Issue description with specific location]
-
-#### 🟢 Nitpick
-- [Suggestion]
-
-### Quality Assessment
-
-| Check | Status |
-|-------|--------|
-| Goal is specific and measurable | PASS / FAIL |
-| Citations support key decisions | PASS / FAIL |
-| Tasks are actionable | PASS / FAIL |
-| Edge cases addressed | PASS / FAIL |
-
-### Positive Observations
-- [What's done well - always include at least one]
-```
-
----
-
-## What NOT to Do
-
-- Do NOT re-validate format—`plan_save` handles structural validation
-- Do NOT evaluate code quality (that's code-review's job)
-- Do NOT execute or modify the plan during review
-- Do NOT skip citation verification for decisions
-- Do NOT accept vague goals or ambiguous tasks
-- Do NOT forget to note positive observations
-
----
-
-## Adherence Checklist
-
-Before completing a plan review, verify:
-
-- [ ] All 3 quality categories analyzed (Citations, Completeness, Actionability)
-- [ ] Severity assigned to each finding
-- [ ] Specific locations noted for all issues
-- [ ] Quality Assessment table completed
-- [ ] Positive observations noted
-- [ ] Output follows the standard format
+- Do not execute or modify the plan during review.
+- Do not review a diff with this skill; diff review and plan critique stay separate.
+- Do not use emoji or severity levels beyond blocker, concern, nit.
+- ASCII only in output.

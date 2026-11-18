@@ -60,14 +60,20 @@
     }
   ],
   // lsp: dropped in v2 port - not a documented v2 top-level key
-  // Personal data outside the workspace is denied by default; standard system
-  // dirs are allowed; anything unmatched (e.g. /var, /mnt) keeps the default
-  // ask effect. Permissions evaluate findLast, so later rules win.
+  // Local configuration/state/cache directories under ~ are readable; other
+  // home paths fall through to the default ask effect (a permission request),
+  // so user-data directories (Documents, Downloads, Pictures, Projects outside
+  // the workspace) prompt instead of silently allowing. Standard system dirs
+  // are allowed; anything unmatched (e.g. /var, /mnt) keeps the default ask
+  // effect. Permissions evaluate findLast, so later rules win.
   "permissions": [
-    { "action": "external_directory", "resource": "~/**", "effect": "deny" },
+    { "action": "external_directory", "resource": "~/.config/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "~/.local/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "~/.cache/**", "effect": "allow" },
     // Narrow exception for the shared knowledge dir: agents loading web-search
-    // strategy modules via read would otherwise be denied. .env (one level up,
-    // gitignored) stays blocked.
+    // strategy modules via read would otherwise be denied. Redundant under the
+    // ~/.config/** allow above and kept as documented intent. .env (one level
+    // up, gitignored) stays blocked by the read denies below.
     { "action": "external_directory", "resource": "~/.config/opencode/knowledge/**", "effect": "allow" },
     // Standard system directories.
     { "action": "external_directory", "resource": "/usr/**", "effect": "allow" },

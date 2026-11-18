@@ -33,8 +33,10 @@ at it.
 - Branch plan logs follow the `fusion-plan-log` skill: `.plans/<branch>.md`, live sections
   (`Plan`, `Open issues`, `Next step`) rewritten by the primary, cumulative sections
   (`Decisions`, `Progress log`, `Implemented`) append-only, `.plans/` never tracked.
-- `compress` takes `{topic, content}` where `content` is an array of `{startId, endId, summary}`
-  ranges - never a plain string.
+- `prune` (the DCP tool) takes `{topic, content}` where `content` is an array of
+  `{startId, endId, summary}` ranges - never a plain string. A summary carries a previously
+  pruned block forward with a `(bN)` placeholder; the `mNNNN`/`bN` boundary ids are renumbered
+  every dispatch, so ids copied from an earlier call throw - use the currently visible tags.
 - Output is ASCII only across all agents: ` - ` not em-dashes, straight quotes, `...`.
 - The `Amenable Thor 1` provider block in `opencode.jsonc` contains a hardcoded API key and an
   internal-IP base URL. Treat it as a secret; never echo it into commits, diffs, or summaries.

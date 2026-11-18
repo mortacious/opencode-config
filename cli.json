@@ -1,7 +1,4 @@
 {
-  "plugins": [
-    "@tarquinen/opencode-dcp@latest"
-  ],
   "theme": {
     "name": "catppuccin"
   },

@@ -5,7 +5,15 @@
   "websearch": { "provider": "exa" },
   "experimental": { "subagent_depth": 2 },
   "plugins": [
-    "@tarquinen/opencode-dcp@latest",
+    {
+      "package": "opencode-dcp@2.0.5",
+      "options": {
+        "maxContextLimit": "85%",
+        "nudgeFrequency": 5,
+        "iterationNudgeThreshold": 12,
+        "allowSubAgents": true
+      }
+    },
     "./plugin-src/fusion-audit",
     "./plugin-src/fusion-bootstrap",
     {
@@ -52,11 +60,38 @@
     }
   ],
   // lsp: dropped in v2 port - not a documented v2 top-level key
-  // Auto-allow the shared knowledge dir so agents loading web-search
-  // strategy modules via read don't prompt for external_directory access.
-  // Scope is narrow: .env (one level up, gitignored) stays blocked.
+  // Personal data outside the workspace is denied by default; standard system
+  // dirs are allowed; anything unmatched (e.g. /var, /mnt) keeps the default
+  // ask effect. Permissions evaluate findLast, so later rules win.
   "permissions": [
-    { "action": "external_directory", "resource": "~/.config/opencode/knowledge/**", "effect": "allow" }
+    { "action": "external_directory", "resource": "~/**", "effect": "deny" },
+    // Narrow exception for the shared knowledge dir: agents loading web-search
+    // strategy modules via read would otherwise be denied. .env (one level up,
+    // gitignored) stays blocked.
+    { "action": "external_directory", "resource": "~/.config/opencode/knowledge/**", "effect": "allow" },
+    // Standard system directories.
+    { "action": "external_directory", "resource": "/usr/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/lib/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/lib64/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/bin/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/sbin/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/etc/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/opt/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/proc/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/sys/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/dev/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/tmp/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/run/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/snap/**", "effect": "allow" },
+    // Defense-in-depth read denies: secrets stay blocked even inside allowed trees (global session rules evaluate last).
+    { "action": "read", "resource": "~/.ssh/**", "effect": "deny" },
+    { "action": "read", "resource": "~/.gnupg/**", "effect": "deny" },
+    { "action": "read", "resource": "~/.aws/**", "effect": "deny" },
+    { "action": "read", "resource": "~/.config/gh/**", "effect": "deny" },
+    { "action": "read", "resource": ".env*", "effect": "deny" },
+    { "action": "read", "resource": "**/.env*", "effect": "deny" },
+    // DCP `prune` tool: permissions evaluate findLast with session/global rules after agent rules, so this allow outranks agent tool denies.
+    { "action": "prune", "resource": "*", "effect": "allow" }
   ],
   "mcp": {
     "servers": {

@@ -29,8 +29,9 @@ const ROOT = path.resolve(process.argv[2] ?? path.join(HERE, '..'));
 const BUILTIN_AGENTS = new Set(['title', 'general', 'compaction', 'summary']);
 
 // Canonical coarse-grained permission actions (opencode v2), plus tool-id
-// actions: MCP tool ids such as ddgs_search_text and built-in tool ids that
-// exist in opencode 2.2.6 (grep, glob). "*" is the blanket wildcard.
+// actions: MCP tool ids such as ddgs_search_text and built-in/plugin tool ids
+// that are bare lowercase words (grep, glob, prune from opencode-dcp).
+// "*" is the blanket wildcard.
 const CANONICAL_ACTIONS = new Set([
   'read',
   'edit',
@@ -44,6 +45,7 @@ const CANONICAL_ACTIONS = new Set([
   'submit_result',
   'grep',
   'glob',
+  'prune',
   '*',
 ]);
 

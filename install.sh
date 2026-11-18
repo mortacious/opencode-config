@@ -344,7 +344,7 @@ fi
 
 # --- opencode plugins ---
 # Note: the npm-listed plugin in opencode.jsonc "plugins" array
-# (@tarquinen/opencode-dcp) is resolved by opencode itself on first run - it does
+# (opencode-dcp@2.0.5) is resolved by opencode itself on first run - it does
 # not need to be pre-installed by this script. The local plugin package
 # plugin-src/fusion-audit in the same array gets its dependencies installed in
 # the step above.

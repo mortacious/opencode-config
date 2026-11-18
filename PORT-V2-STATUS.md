@@ -34,7 +34,8 @@ Port history (newest first; `git log v2-port` for the current HEAD):
   registered explicitly as `./plugin-src/fusion-audit` in `opencode.jsonc`.
   Bare-file plugin discovery could not resolve `@opencode/plugin` from the v2
   service - seen in logs 2026-09-28 - so the bare-file form is not enough.
-- `cli.json` created (DCP-only plugin list) for the v2 terminal client.
+- `cli.json` created for the v2 terminal client (TUI settings only; the DCP plugin
+  needs no cli.json entry since `opencode-dcp` auto-loads its TUI companion).
 - `tui.json` intentionally left v1-correct; v2 ignores it.
 - `AGENTS.md`, `README.md`, `install.sh` updated to v2 key names.
 - `package.json` carries both plugin packages: `@opencode-ai/plugin` 1.14.20
@@ -60,15 +61,16 @@ changed by the port, so switching back is lossless.
 
 - All MCP servers come up and authenticate. `{env:}` key interpolation may not
   reach the v2 background service (github issue #44914).
-- DCP loads: requires `@tarquinen/opencode-dcp` >= 3.2.0.
+- DCP loads: `opencode-dcp@2.0.5` (MIT, V2-native fork; tool `prune`), listed in
+  `opencode.jsonc`.
 - `experimental.subagent_depth: 2` behavior: known GUI bug #48515 - drop to 1
   if navigation misbehaves.
 - caveman-opencode-plugin: REMOVED (decided 2026-09-28). v1-only plugins
   hard-break v2 startup (issue #48365), and this one was not needed - it is
   gone from the `plugins` array and from all doc/install references.
-- DCP compress `ask` permission is unsupported in v2 (DCP v2 supports only
-  allow/deny). `dcp.jsonc` currently has no permission overrides, so this is
-  likely moot.
+- DCP tool gating is a core `permissions` rule on action `prune` (global allow in
+  `opencode.jsonc`; the tarquinen `ask` option is gone). `dcp.jsonc` is deleted - the
+  fork takes its options inline in the `plugins` entry.
 - Per-agent `request.body` is accepted but inert in v2.
 - TUI memory growth on long sessions (issue #51620).
 - The published schema may reject documented v2 fields (issue #43748,
@@ -77,8 +79,8 @@ changed by the port, so switching back is lossless.
 ## What is still needed in v2 vs native
 
 - DCP is still needed: v2 native compaction (`compaction.auto` /
-  `keep.tokens` / `buffer`) is summarization-based and does not provide DCP's
-  surgical tool-output pruning or the `compress` tool.
+  `keep.tokens` / `buffer`) is summarization-based and does not provide
+  `opencode-dcp@2.0.5`'s surgical tool-output pruning or the `prune` tool.
 - All seven MCP servers (codegraph, ddgs, github, dblp, semantic-scholar,
   arxiv, sourcegraph) have no native replacements and stay.
 - fusion-audit has no native equivalent and was ported.

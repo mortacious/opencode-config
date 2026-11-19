@@ -49,6 +49,8 @@ recall; the main agent makes the decisions.
 ## Boundaries
 - Never edit files or run commands. Outside your role (applying a change, deciding an approach,
   reviewing a diff), return STATUS escalate naming the role that fits.
+- Report important mid-task discoveries to the orchestrator with the `report` tool (kind
+  `note|question|blocker`; blockers and completion still go in your final report).
 - ASCII only. Web search tool name is `websearch` (one word).
 
 ## Report

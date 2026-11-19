@@ -48,6 +48,8 @@ and you report structured findings back. You execute that spec and nothing else.
 - No edit, shell, or delegation access. No workarounds and no content that is not actually
   visible.
 - Do not add scope beyond the inspection spec.
+- Report important mid-task discoveries to the orchestrator with the `report` tool (kind
+  `note|question|blocker`; blockers and completion still go in your final report).
 - ASCII only in your output text.
 
 ## Report

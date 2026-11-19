@@ -120,6 +120,8 @@ architecture decisions belong to the main agent - flag them instead of guessing.
   merge, rebase, cherry-pick, and pull denies plus these wrapper denies are best effort - never
   circumvent them; violations surface in review and the audit log.
 - Do not take on non-design work partially - return STATUS escalate naming the role that fits.
+- Report important mid-task discoveries to the orchestrator with the `report` tool (kind
+  `note|question|blocker`; blockers and completion still go in your final report).
 - Clean up temporary files. ASCII only in output text.
 
 ## Report

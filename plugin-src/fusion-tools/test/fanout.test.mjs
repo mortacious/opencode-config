@@ -83,6 +83,7 @@ function makeCtx(overrides = {}) {
   const hooks = { context: null };
   const tools = [];
   const commands = [];
+  const rpcs = [];
   const calls = { creates: [], prompts: [], interrupts: [], waits: [] };
   const waitResolvers = new Map();
   const hangSessions = overrides.hangSessions || new Set();
@@ -211,8 +212,14 @@ function makeCtx(overrides = {}) {
         return { dispose: async () => {} };
       },
     },
+    rpc: {
+      register: async (definition, handlers) => {
+        rpcs.push({ definition, handlers });
+        return { dispose: async () => {}, events: { emit: async () => {} } };
+      },
+    },
   };
-  return { ctx, hooks, tools, commands, calls, storageMap, waitResolvers };
+  return { ctx, hooks, tools, commands, rpcs, calls, storageMap, waitResolvers };
 }
 
 function waitUntil(cond, ms = 4000) {
@@ -258,7 +265,7 @@ test("setup registers fanout and submit_result tools alongside advise", async ()
   const cleanup = await plugin.setup(h.ctx);
   try {
     const names = h.tools.map((t) => t.name).sort();
-    assert.deepEqual(names, ["advise", "fanout", "submit_result"]);
+    assert.deepEqual(names, ["advise", "fanout", "report", "steer", "submit_result"]);
     const fanout = h.tools.find((t) => t.name === "fanout");
     assert.equal(fanout.input.properties.tasks.maxItems, 8, "maxItems = config maxConcurrency");
     assert.equal(fanout.input.properties.tasks.minItems, 1);
@@ -270,20 +277,29 @@ test("setup registers fanout and submit_result tools alongside advise", async ()
     const submit = h.tools.find((t) => t.name === "submit_result");
     assert.ok(submit.input.properties.data);
     assert.ok(submit.input.properties.error);
-    // the steer command registers alongside the tools (always-on module)
-    assert.ok(h.commands.find((c) => c.name === "steer"), "steer command registered");
+    // The server /steer command surface is intentionally NOT registered: the
+    // single /steer entry point is the TUI keymap command, which calls this
+    // RPC. The steer tool stays as the non-TUI path.
+    assert.equal(
+      h.commands.find((c) => c.name === "steer"),
+      undefined,
+      "no server /steer command",
+    );
+    const steerRpc = h.rpcs.find((r) => r.definition && r.definition.id === "steer");
+    assert.ok(steerRpc, "steer RPC registered (always-on module)");
+    assert.deepEqual(Object.keys(steerRpc.handlers).sort(), ["children", "deliver"]);
   } finally {
     await cleanup();
   }
   await settle();
 });
 
-test("fanout disabled (no options key) registers only advise", async () => {
+test("fanout disabled (no options key) registers only the always-on tools", async () => {
   const h = makeCtx();
   delete h.ctx.options.fanout;
   const cleanup = await plugin.setup(h.ctx);
   try {
-    assert.deepEqual(h.tools.map((t) => t.name), ["advise"]);
+    assert.deepEqual(h.tools.map((t) => t.name).sort(), ["advise", "report", "steer"]);
     assert.match(await readLog(), /"msg":"fanout disabled; registering nothing"/);
   } finally {
     await cleanup();

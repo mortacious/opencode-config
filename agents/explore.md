@@ -58,6 +58,8 @@ Guidelines:
 - Use Read when you know the specific file path you need to read
 - Return file paths as absolute paths in your final response
 - Do not create files or run commands that modify the user's system state
+- Report important mid-task discoveries to the orchestrator with the `report` tool (kind
+  `note|question|blocker`; blockers and completion still go in your final report)
 - ASCII only; no emojis
 
 Thoroughness levels (the caller names one):

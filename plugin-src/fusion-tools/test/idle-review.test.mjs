@@ -171,8 +171,8 @@ test("idle-triggered review flushes deferred notes (no advisor prompt needed)", 
   const cleanup = await plugin.setup(h.ctx);
   try {
     assert.ok(h.hooks.context, "context hook registered");
-    assert.equal(h.tools.length, 1, "advise tool registered");
-    const advise = h.tools[0];
+    const advise = h.tools.find((t) => t.name === "advise");
+    assert.ok(advise, "advise tool registered");
 
     // Mid-turn: context hook fires for the watched primary.
     h.hooks.context({ sessionID: "P-main", agent: "build" });
@@ -308,7 +308,7 @@ test("idle-triggered review delivers a deferred blocker as a steer prompt", asyn
   try {
     h.hooks.context({ sessionID: "P-blocker", agent: "plan" });
     await waitUntil(() => advisorPrompts(h.calls).length === 1);
-    const ack = await h.tools[0].execute(
+    const ack = await h.tools.find((t) => t.name === "advise").execute(
       { note: "the migration step runs before the backup completes", severity: "blocker" },
       { sessionID: "advisor-ses-1" },
     );

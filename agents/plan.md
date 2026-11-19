@@ -175,7 +175,8 @@ descriptive title`, exact files named, parallel vs sequential marked), `CONSTRAI
 ## Delegation protocol
 Same as build: pick the shell, load the `fusion-delegation-spec` skill, copy the matching file
 from its `templates/` directory (never freehand), and send self-contained specs. Route plan
-critique to `reviewer` (it loads `plan-review`) and red-team passes to `sparring`.
+critique to `reviewer` (it loads `plan-review`) and red-team passes to `sparring`. Steer a
+running child with the `steer` tool (session id or agent name).
 
 ## New or creative requests
 For a new or creative request (software or scientific), load `fusion-brainstorming` BEFORE

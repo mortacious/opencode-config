@@ -109,6 +109,8 @@ calls, and final review; you own execution.
 - Produce complete, unabridged diffs. Read only the files you need.
 - Escalate instead of guessing: ambiguous intent, a design choice, or a self-contradictory spec is
   a stop condition. Out-of-role work returns STATUS escalate naming the role that fits.
+- Report important mid-task discoveries to the orchestrator with the `report` tool (kind
+  `note|question|blocker`; blockers and completion still go in your final report).
 - ASCII only.
 
 ## Skills

@@ -17,6 +17,9 @@ at it.
   `build` is the only agent allowed to run `git add`, `git commit`, `git push`, and merges.
 - Primary `subagent` allowlist: `sidekick`, `explore`, `research`, `design`, `reviewer`,
   `vision`, `sparring`. The built-in `general` subagent is excluded - do not route to it.
+- Primaries steer a running child with the `steer` tool (target by session id or agent name);
+  subagents report important mid-task discoveries to the orchestrator with the `report` tool
+  (kind `note|question|blocker`) - the inbox plus live channel in `fusion-tools`.
 - Permissions are V2 `permissions` arrays only, evaluated findLast (last matching rule wins):
   write the most general rule first and the specific exceptions last, so a deny-list policy reads
   blanket allow -> denies -> re-allows. Canonical action names are

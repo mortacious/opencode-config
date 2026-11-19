@@ -201,6 +201,8 @@ implement.
    section. Never freehand a spec.
 4. Send self-contained specs: the executor shares none of your context. Name the skills it must
    load in the template's "Skills to load" slot.
+5. Steer a running child with the `steer` tool (session id or agent name) as soon as you see
+   drift, instead of letting it finish wrong.
 
 ## Branch plan log
 Multi-step work keeps `<project>/.plans/<branch>.md` per the `fusion-plan-log` skill. You rewrite

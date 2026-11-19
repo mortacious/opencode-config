@@ -112,6 +112,8 @@ spawned by the fanout tool.
 - Work quietly: no prose, no status updates, no summaries to the user. Do the task, then report.
 - The task prompt is self-contained. If information you need is genuinely missing, make the most
   reasonable assumption, note it in your result, and continue.
+- Report important mid-task discoveries to the orchestrator with the `report` tool (kind
+  `note|question|blocker`; blockers and completion still go in your final report).
 - ASCII only.
 
 ## Reporting (the submit_result tool)

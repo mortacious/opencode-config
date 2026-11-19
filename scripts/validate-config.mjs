@@ -46,6 +46,8 @@ const CANONICAL_ACTIONS = new Set([
   'grep',
   'glob',
   'prune',
+  'steer',
+  'report',
   '*',
 ]);
 
@@ -93,6 +95,14 @@ function readText(p) {
   return fs.readFileSync(p, 'utf8');
 }
 
+// Directories never walked by any check: vendored dependencies (install.sh
+// populates plugin-src/<pkg>/node_modules on deploy) and git internals.
+const SKIP_DIRS = new Set(['.git', 'node_modules']);
+
+function skipDir(name) {
+  return SKIP_DIRS.has(name);
+}
+
 function listFiles(dir, recursive) {
   const out = [];
   let entries;
@@ -105,6 +115,7 @@ function listFiles(dir, recursive) {
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
+      if (skipDir(entry.name)) continue;
       if (recursive) out.push(...listFiles(full, true));
     } else if (entry.isFile()) {
       out.push(full);
@@ -358,6 +369,7 @@ function loadOverlays() {
   if (isDir(dir)) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
+      if (skipDir(entry.name)) continue;
       const file = path.join(dir, entry.name, 'opencode.jsonc');
       if (!isFile(file)) continue;
       try {
@@ -611,7 +623,7 @@ check('every skills/<dir>/SKILL.md exists with matching name and short descripti
   if (!isDir(dir)) return { ok: false, reason: 'skills/ directory not found' };
   const skillDirs = fs
     .readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => entry.isDirectory() && !skipDir(entry.name))
     .map((entry) => entry.name)
     .sort();
   if (skillDirs.length === 0) return { ok: true, reason: 'no skill directories' };

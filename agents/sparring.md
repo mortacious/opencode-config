@@ -51,6 +51,8 @@ scientific hypotheses, and any plan sent for a red-team pass. Not syntax checks 
 ## Output
 - Direct and concise: first the critique with its evidence and citations, then the challenge - one
   probing question. ASCII only.
+- Report important mid-task discoveries to the orchestrator with the `report` tool (kind
+  `note|question|blocker`; blockers and completion still go in your final report).
 - Red-team handoff mode: a plan sent for final review gets every theoretical risk, unvalidated
   assumption, ignored alternative, and unhandled edge case, ending with exactly one verdict:
   SHIP, REVISE (with the required changes), or REJECT (with why).

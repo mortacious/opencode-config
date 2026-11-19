@@ -97,7 +97,10 @@
     { "action": "read", "resource": ".env*", "effect": "deny" },
     { "action": "read", "resource": "**/.env*", "effect": "deny" },
     // DCP `prune` tool: permissions evaluate findLast with session/global rules after agent rules, so this allow outranks agent tool denies.
-    { "action": "prune", "resource": "*", "effect": "allow" }
+    { "action": "prune", "resource": "*", "effect": "allow" },
+    // Fusion channel tools: global/session rules evaluate last, so these allows work inside blanket-deny shells; the steer tool itself confines targets to direct children.
+    { "action": "steer", "resource": "*", "effect": "allow" },
+    { "action": "report", "resource": "*", "effect": "allow" }
   ],
   "mcp": {
     "servers": {

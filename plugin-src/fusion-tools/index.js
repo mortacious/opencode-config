@@ -13,10 +13,17 @@
 // results reported back via the workers' `submit_result` tool. Orchestration
 // lives in lib/fanout.js; worktrees are retained for the parent to integrate.
 //
-// steer: a `/steer` command that forwards a short message to the most
-// recently created still-running subagent of the calling session (children
-// are tracked from session.created events via parentID; see lib/steer.js).
-// It registers whenever the plugin loads, independent of advisor.enabled.
+// steer: the bidirectional Fusion channel. The TUI "/steer" command is a
+// single entry point: bare invocation opens a picker over direct children,
+// "/steer [agent|session-id] <message>" delivers directly. Both call the
+// server "steer" RPC, whose delivery/resolution/notification logic lives in
+// lib/steer.js; the `steer` tool is the non-TUI path for the same logic, and
+// the `report` tool lets a child write a mid-run note/question/blocker to the
+// orchestrator (durable JSON-lines inbox plus live delivery). Every steer
+// appends a channel-log line and surfaces a synthetic aside to the
+// orchestrator. Children are tracked from session.created events via parentID
+// (see lib/steer.js). The module registers whenever the plugin loads,
+// independent of advisor.enabled.
 //
 // Config lives in opencode.jsonc plugins entry options: ctx.options.advisor =
 // {enabled, model?, scope?, maxNotesPerUpdate?, reviewTimeoutMs?,
@@ -55,6 +62,7 @@ import {
 } from "./lib/routing.js";
 import { createFanoutModule } from "./lib/fanout.js";
 import { createSteerModule } from "./lib/steer.js";
+import { Steer } from "./rpc.ts";
 
 const STORAGE_PREFIX = "fusion-tools/advisor/";
 const CURSOR_PREFIX = STORAGE_PREFIX + "cursor/";
@@ -199,18 +207,67 @@ export default Plugin.define({
 
     // ---------------- steer module (always registered) ----------------
     // Independent of advisor.enabled: registers whenever the plugin loads.
+    // The TUI /steer command talks to the server through this RPC (the server
+    // command surface is deliberately NOT registered: both a keymap slash
+    // command and a server command feed the same prompt slash completion, so
+    // registering both would show two /steer entries). The steer tool is the
+    // non-TUI path; all of them share lib/steer.js delivery logic.
     const steer = createSteerModule({ ctx });
     try {
-      const regSteer = await ctx.command.transform((editor) => {
-        editor.add(steer.command);
-      });
-      if (regSteer) state.registrations.push(regSteer);
-      log({ module: "steer", level: "info", msg: "steer registered" });
+      if (ctx.rpc && typeof ctx.rpc.register === "function") {
+        const regSteerRpc = await ctx.rpc.register(Steer, {
+          children: async (input) => {
+            const parentSessionID =
+              input && typeof input.parentSessionID === "string"
+                ? input.parentSessionID
+                : "";
+            return {
+              children: parentSessionID
+                ? await steer.listChildrenForPicker(parentSessionID)
+                : [],
+            };
+          },
+          deliver: async (input) => steer.deliverRpc(input),
+        });
+        if (regSteerRpc) state.registrations.push(regSteerRpc);
+        log({
+          module: "steer",
+          level: "info",
+          msg: "steer rpc registered",
+          registrations: state.registrations.length,
+        });
+      } else {
+        log({
+          module: "steer",
+          level: "warn",
+          msg: "ctx.rpc unavailable; /steer picker disabled",
+        });
+      }
     } catch (err) {
       log({
         module: "steer",
         level: "error",
-        msg: "steer command registration failed",
+        msg: "steer rpc registration failed",
+        error: String(err && err.stack ? err.stack : err),
+      });
+    }
+    try {
+      const regSteerTools = await ctx.tool.transform((editor) => {
+        editor.add(steer.tools.steer);
+        editor.add(steer.tools.report);
+      });
+      if (regSteerTools) state.registrations.push(regSteerTools);
+      log({
+        module: "steer",
+        level: "info",
+        msg: "steer/report tools registered",
+        registrations: state.registrations.length,
+      });
+    } catch (err) {
+      log({
+        module: "steer",
+        level: "error",
+        msg: "steer/report tool registration failed",
         error: String(err && err.stack ? err.stack : err),
       });
     }

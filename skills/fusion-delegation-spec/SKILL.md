@@ -75,6 +75,17 @@ One concern per task, small enough to finish in a single focused executor sessio
 - A task is too big when you could not meaningfully steer it mid-flight.
 - Prefer parallel small tasks over one serial large task whenever the pieces are independent.
 
+## Model Tiers
+
+Every profile authors `profiles/<name>/tiers.json`, mapping four tiers to literal model ids and every agent to a default tier. `scripts/tiers-sync.mjs` expands that mapping into the profile's generated agent pins, and fusion-bootstrap injects the active table into primary context. Pick a tier on every delegation and pass its model id as the `subagent` call's `model` parameter when overriding.
+
+- **big** - hard reasoning: novel design, ambiguous tradeoffs, whole-branch final review.
+- **medium** - default implementation, routine review, research synthesis.
+- **small** - clearly mechanical work: single-file edits, find-and-replace, lint fixes, test updates.
+- **vision** - any task whose input includes images, screenshots, or diagrams; a modality constraint, not a size step.
+
+Default to the delegating agent's tier from the injected table. Downgrade for clearly mechanical work, and escalate one size on fix-loop round 2+ (a failed first pass means the task was mis-sized) - but never below the modality requirement: a vision task stays on the vision tier. Final whole-branch review always uses `big`. Turn count beats token price: a cheap model that needs three rounds costs more wall-clock and more of your context than one pass on the right tier.
+
 ## Steering
 
 Spawn executor subagents in the background by default, keep the returned session id, and send follow-up corrections as soon as you see drift instead of waiting for the task to finish wrong. Steering is one channel with two entry points: the `steer` tool (target a direct child by session id or agent name; delivery `steer` interrupts now, `queue` waits for its current step) and the typed command `/steer [agent|session-id] <message>`; bare `/steer` opens a picker over the session's direct children (running first), then prompts for the message. If several children match an agent name and more than one is running, the command lists the candidate ids rather than guessing - retarget by id. Every steer is recorded as a `type:"steer"` line in the fusion channel log and surfaced to the orchestrating session as a synthetic aside, so a delivery means that child's instruction set changed. Go foreground (blocking) only when the very next decision cannot be made without the result. Keep your own context lean: raw output and long exploration stay in the child session. Children push discoveries back through the `report` tool (kind `note|question|blocker`), which writes a durable channel-log line and mirrors the message live; a child's blocker you must act on arrives mid-run, not only in its final report.

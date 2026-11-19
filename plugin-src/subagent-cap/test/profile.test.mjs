@@ -51,11 +51,11 @@ test("base config (no profile overlay) resolves to max", () => {
 });
 
 test("unmapped profile falls back to max", () => {
-  withConfig(join(CONFIG_DIR, "profiles", "secure", "opencode.jsonc"), () => {
-    assert.equal(detectLaunchedProfile(), "secure");
+  withConfig(join(CONFIG_DIR, "profiles", "nightsense", "opencode.jsonc"), () => {
+    assert.equal(detectLaunchedProfile(), "nightsense");
     assert.equal(resolveEffectiveCap(OPTS, detectLaunchedProfile()), 0);
   });
-  withConfig(join(CONFIG_DIR, "profiles", "secure", "opencode.jsonc"), () => {
+  withConfig(join(CONFIG_DIR, "profiles", "nightsense", "opencode.jsonc"), () => {
     const capped = normalizeOptions({ max: 2, profiles: { "cheap-local": 3 } });
     assert.equal(resolveEffectiveCap(capped, detectLaunchedProfile()), 2);
   });

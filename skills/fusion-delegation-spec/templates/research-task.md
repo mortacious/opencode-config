@@ -46,6 +46,13 @@ _Answer <question> in order to decide <decision>._
 
 - `fusion-research-methodology`
 
+## Model tier
+
+<!-- REQUIRED: one of big | medium | small | vision. Researcher's default tier is medium. Name the overriding tier's model id from the injected Model tiers table (for example when the answer hinges on conflicting-source synthesis). -->
+
+- Tier: big | medium | small | vision
+- Model override: `<provider>/<model>` from the injected table, or "none - default"
+
 ## Report contract
 
 <!-- What the researcher must return. -->

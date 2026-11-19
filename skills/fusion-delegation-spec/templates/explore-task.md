@@ -56,6 +56,13 @@ _Map <area> so that <decision> can be made._
 
 - none
 
+## Model tier
+
+<!-- REQUIRED: one of big | medium | small | vision. Explorer's default tier is medium; a narrow single-file lookup may use small. Name the overriding tier's model id from the injected Model tiers table. -->
+
+- Tier: big | medium | small | vision
+- Model override: `<provider>/<model>` from the injected table, or "none - default"
+
 ## Report contract
 
 <!-- What the explorer must return. -->

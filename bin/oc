@@ -322,6 +322,11 @@ profile_add() {
   local overlay="$PROFILES_DIR/$name/opencode.jsonc"
   if [ -n "$src" ] && [ -f "$PROFILES_DIR/$src/opencode.jsonc" ]; then
     cp "$PROFILES_DIR/$src/opencode.jsonc" "$overlay"
+    # A tier-managed source makes the clone tier-managed too: copy the
+    # authored mapping and regenerate the overlay below from it.
+    if [ -f "$PROFILES_DIR/$src/tiers.json" ]; then
+      cp "$PROFILES_DIR/$src/tiers.json" "$PROFILES_DIR/$name/tiers.json"
+    fi
   else
     cat > "$overlay" <<'PROFILE_EOF'
 {
@@ -331,17 +336,42 @@ PROFILE_EOF
   fi
 
   if [ -n "$model" ]; then
-    # Rewrite: every agents.*.model (v2; falls back to agent.* on v1 overlays)
-    # + small_model -> new id; strip agent variants.
-    # jq parses strict JSON only, so drop full-line // comments (jsonc) first.
-    sed -E 's|^[[:space:]]*//.*$||' "$overlay" > "$overlay.tmp"
-    jq --arg model "$model" '
-      (if .agents then .agents |= with_entries(.value |= (del(.variant) | .model = $model))
-       elif .agent then .agent |= with_entries(.value |= (del(.variant) | .model = $model))
-       else . end)
-      | .small_model = $model
-    ' "$overlay.tmp" > "$overlay"
-    rm -f "$overlay.tmp"
+    if [ -f "$PROFILES_DIR/$name/tiers.json" ]; then
+      # Tier-managed profile: retarget ALL four tiers, then regenerate the
+      # overlay from tiers.json. Per-agent pin rewriting no longer applies:
+      # the overlay is generated and is never edited directly.
+      local tiers="$PROFILES_DIR/$name/tiers.json"
+      if ! jq --arg model "$model" '.tiers |= with_entries(.value = $model)' \
+        "$tiers" > "$tiers.tmp"; then
+        rm -f "$tiers.tmp"
+        echo "Failed to rewrite $tiers" >&2
+        exit 1
+      fi
+      mv "$tiers.tmp" "$tiers"
+      if ! node "$CONFIG_DIR/scripts/tiers-sync.mjs" --profile "$name"; then
+        echo "Tier sync failed for profile: $name" >&2
+        exit 1
+      fi
+    else
+      # Rewrite: every agents.*.model (v2; falls back to agent.* on v1 overlays)
+      # + small_model -> new id; strip agent variants.
+      # jq parses strict JSON only, so drop full-line // comments (jsonc) first.
+      sed -E 's|^[[:space:]]*//.*$||' "$overlay" > "$overlay.tmp"
+      jq --arg model "$model" '
+        (if .agents then .agents |= with_entries(.value |= (del(.variant) | .model = $model))
+         elif .agent then .agent |= with_entries(.value |= (del(.variant) | .model = $model))
+         else . end)
+        | .small_model = $model
+      ' "$overlay.tmp" > "$overlay"
+      rm -f "$overlay.tmp"
+    fi
+  elif [ -f "$PROFILES_DIR/$name/tiers.json" ]; then
+    # Clone of a tier-managed profile without a swap: regenerate the clone's
+    # overlay from its copied tiers.json instead of trusting the source copy.
+    if ! node "$CONFIG_DIR/scripts/tiers-sync.mjs" --profile "$name"; then
+      echo "Tier sync failed for profile: $name" >&2
+      exit 1
+    fi
   fi
 
   # Both the heredoc seed and jq output end with a trailing newline.
@@ -679,6 +709,15 @@ main() {
       if ! command -v opencode >/dev/null 2>&1; then
         echo "opencode not found on PATH" >&2
         exit 1
+      fi
+      # Tier-managed profiles regenerate their overlay first: tiers.json is the
+      # authored mapping, the overlay holds the literal provider/model pins that
+      # opencode and profile-switcher read. Never launch on a stale expansion.
+      if [ -f "$PROFILES_DIR/$profile/tiers.json" ]; then
+        if ! node "$CONFIG_DIR/scripts/tiers-sync.mjs" --profile "$profile"; then
+          echo "oc: tier sync failed for profile '$profile'; refusing to launch with stale model pins" >&2
+          exit 1
+        fi
       fi
       export OPENCODE_CONFIG="$PROFILES_DIR/$profile/opencode.jsonc"
       echo "Using profile: $profile" >&2

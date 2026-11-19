@@ -161,7 +161,7 @@ test("reconcile-release: an idle tracked child frees capacity on the next blocke
 test("unlimited: max 0 leaves the tool unwrapped and never rejects", async () => {
   const opts = normalizeOptions({ max: 0, profiles: { "cheap-local": 3 } });
   assert.equal(opts.max, 0);
-  assert.equal(resolveEffectiveCap(opts, "secure"), 0, "profile absent from the map -> max");
+  assert.equal(resolveEffectiveCap(opts, "nightsense"), 0, "profile absent from the map -> max");
 
   // index.js setup gate: no transform registration for an effective cap of 0.
   // Force the base (no profile) launch so a parent OPENCODE_CONFIG cannot

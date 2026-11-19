@@ -200,7 +200,12 @@
           ]
         },
         "deepseek-v4.1-flash": {
-          "capabilities": { "tools": true, "input": ["text", "image"], "output": ["text"] }
+          "capabilities": { "tools": true, "input": ["text", "image"], "output": ["text"] },
+          // unlike glm-5.3-flash, this route accepts native reasoning_effort, so variants set it directly
+          "variants": [
+            { "id": "max", "settings": { "reasoningEffort": "max" } },
+            { "id": "none", "settings": { "reasoningEffort": "none" } }
+          ]
         },
         "gpt-5.6-luna": {
           "capabilities": { "tools": true, "input": ["text", "image"], "output": ["text"] }

@@ -50,6 +50,13 @@ _Expected: <what the output should show>._
 - `fusion-code-review`
 - `plan-review` (plan critique only)
 
+## Model tier
+
+<!-- REQUIRED: one of big | medium | small | vision. Reviewer's default tier is medium; a whole-branch final review uses big. Name the overriding tier's model id from the injected Model tiers table. -->
+
+- Tier: big | medium | small | vision
+- Model override: `<provider>/<model>` from the injected table, or "none - default"
+
 ## Report contract
 
 <!-- What the reviewer must return. -->

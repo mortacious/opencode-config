@@ -1,6 +1,6 @@
 {
   "scripts": {
-    "test": "node --test plugin-src/fusion-tools/test/"
+    "test": "node --test plugin-src/fusion-tools/test/ plugin-src/fusion-bootstrap/test/"
   },
   "dependencies": {
     "@opencode-ai/plugin": "1.14.20",

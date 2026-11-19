@@ -1,0 +1,22 @@
+{
+  "tiers": {
+    "big": "Amenable Thor 1/qwen38-flash-next",
+    "medium": "Amenable Thor 1/qwen38-flash-next",
+    "small": "Amenable Thor 1/qwen38-flash-next",
+    "vision": "Amenable Thor 1/qwen38-flash-next"
+  },
+  "agents": {
+    "build": "big",
+    "plan": "big",
+    "sparring": "big",
+    "reviewer": "medium",
+    "sidekick": "medium",
+    "explore": "medium",
+    "research": "medium",
+    "advisor": "medium",
+    "worker": "medium",
+    "design": "vision",
+    "vision": "vision",
+    "title": "medium"
+  }
+}

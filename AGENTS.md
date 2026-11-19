@@ -29,8 +29,15 @@ at it.
 - Frontmatter carries `description`, `mode`, and the V2 `permissions` array. `temperature`,
   `mcps:`, `skills:`, and `model:` are unsupported fields on opencode 2.2.6 and must not
   reappear.
-- Models resolve from `opencode.jsonc` `agents.*` pins and profile overlays - never from agent
-  frontmatter.
+- Model tiers are the source of truth: each profile authors `profiles/<name>/tiers.json` with the
+  four tier models (`big`, `medium`, `small`, `vision`) and a default tier per agent.
+  `scripts/tiers-sync.mjs` GENERATES the profile's `agents.*.model` pins from it - those pins are
+  generated and must not be hand-edited. `bin/oc` re-syncs at launch and refuses to launch when
+  the sync fails (invalid `tiers.json`, unwritable overlay). A profile with no `tiers.json` falls
+  back to the base `opencode.jsonc` pins. Primaries choose a tier per delegation, default to the
+  delegating agent's tier, and may override one step; the chosen tier's literal model id goes in
+  the `subagent` call's `model` parameter. `vision` is a modality constraint (image input), not a
+  reasoning size. Agent frontmatter never carries a model.
 - Skills are advertised session-wide and filtered only by `skill` permission rules. An agent that
   needs a method loads it with the `skill` tool; restrict exposure with `skill` rules if needed.
 - Branch plan logs follow the `fusion-plan-log` skill: `.plans/<branch>.md`, live sections

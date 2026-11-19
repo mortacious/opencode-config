@@ -34,18 +34,18 @@ See `REPO.md` for the authoritative layout map and `AGENTS.md` for the Fusion de
 
 ## Profiles
 
-A home-grown profile system lets you launch opencode under different model/config overlays. `bin/oc` is a small bash wrapper that sets `OPENCODE_CONFIG` to a profile's `opencode.jsonc` overlay (opencode deep-merges it on top of the base config). Profiles live in `profiles/<name>/opencode.jsonc` and travel with the repo via `git pull`.
+A home-grown profile system lets you launch opencode under different model/config overlays. Each profile authors `profiles/<name>/tiers.json` - the four tier models (`big`, `medium`, `small`, `vision`) plus a default tier per agent - and `scripts/tiers-sync.mjs` expands it into a GENERATED `profiles/<name>/opencode.jsonc`. `bin/oc` sets that overlay as `OPENCODE_CONFIG` (opencode deep-merges it on top of the base config) after re-syncing it. Edit `tiers.json`, never the generated overlay. Profiles travel with the repo via `git pull`.
 
 ### Install
 
-`./install.sh` symlinks `bin/oc` into `~/.local/bin/oc` (or `/usr/local/bin/oc` if that is writable). Make sure `~/.local/bin` is on your PATH (add `export PATH="$HOME/.local/bin:$PATH"` to your shell rc if not). `install.sh` also ensures `profiles/default/opencode.jsonc` exists.
+`./install.sh` symlinks `bin/oc` into `~/.local/bin/oc` (or `/usr/local/bin/oc` if that is writable). Make sure `~/.local/bin` is on your PATH (add `export PATH="$HOME/.local/bin:$PATH"` to your shell rc if not). `install.sh` also ensures `profiles/default/opencode.jsonc` exists; it is tracked and generated from `profiles/default/tiers.json`, so a normal checkout already has it.
 
 ### Use
 
 Launch opencode with a specific profile:
 ```
-oc cheap-local           # uses profiles/cheap-local/opencode.jsonc
-oc default               # identity overlay, base config unchanged
+oc cheap-local           # cheap-local tier models: every agent on the Thor flash id
+oc default               # deepseek-v4.1-flash tiers, vision on gpt-5.6-luna
 oc                       # uses .active-profile or 'default'
 ```
 
@@ -61,12 +61,12 @@ oc profile list
 
 ### Fork a profile (optionally swapping every model)
 
-Create a new cheap-local-style overlay by forking `default` and rewriting every agent model + `small_model` to a different model id (requires `jq`):
+Create a new cheap-local-style profile by cloning a tier-managed profile and retargeting all four of its tier models to one id (requires `jq`). The clone copies `tiers.json`; the overlay is regenerated from it, so the clone stays tier-managed:
 ```
 oc profile add experimental --clone default --swap-model "Amenable Thor 1/qwen3.8-27b"
 ```
 
-`--swap-model` also strips `variant` fields (the new provider may not define any).
+For a tier-managed profile `--swap-model` rewrites all four tier entries, so variants come from the new id. A legacy overlay without `tiers.json` instead has every `agents.*.model` plus `small_model` rewritten and `variant` fields stripped (the new provider may not define any).
 
 ### Install an external project-local bundle
 
@@ -78,7 +78,7 @@ Clones `agentic-vault` into `~/my-vault/.agentic-vault` and runs its `setup.sh`,
 
 ### Adding a new model for cheap experiments
 
-If the model is not yet registered as a provider model in `opencode.jsonc`, add it under the relevant `provider.<name>.models` block first. Then either edit `profiles/cheap-local/opencode.jsonc` directly, or fork:
+If the model is not yet registered as a provider model in `opencode.jsonc`, add it under the relevant `provider.<name>.models` block first. Then edit the relevant `profiles/<name>/tiers.json` tier value (`oc` re-syncs before the next launch), or fork:
 ```
 oc profile add cheap-qwen --clone default --swap-model "<provider>/<model-id>"
 oc cheap-qwen

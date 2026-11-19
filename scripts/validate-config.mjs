@@ -18,6 +18,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import {
+  TIER_KEYS,
+  buildExpansion,
+  diffOverlay,
+  listTierProfiles,
+  parseModelRef,
+  validateTiersData,
+} from './tiers-sync.mjs';
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(process.argv[2] ?? path.join(HERE, '..'));
 
@@ -459,6 +468,34 @@ function parseModelPin(value) {
     if (model === '' || variant === '') return null;
   }
   return { provider, model };
+}
+
+// Declared variant ids per provider/model, but only where opencode.jsonc
+// declares a variants array for that model (shape: [{ id, settings|body }]).
+// A model with no variants array is not variant-constrained here.
+function declaredVariants(cfg) {
+  const out = new Map();
+  if (!cfg || typeof cfg !== 'object') return out;
+  for (const key of ['provider', 'providers']) {
+    const block = cfg[key];
+    if (!block || typeof block !== 'object' || Array.isArray(block)) continue;
+    for (const [provider, providerCfg] of Object.entries(block)) {
+      if (!providerCfg || typeof providerCfg !== 'object' || Array.isArray(providerCfg)) continue;
+      const models = providerCfg.models;
+      if (!models || typeof models !== 'object' || Array.isArray(models)) continue;
+      for (const [model, modelCfg] of Object.entries(models)) {
+        if (!modelCfg || typeof modelCfg !== 'object' || !Array.isArray(modelCfg.variants)) continue;
+        const ids = new Set();
+        for (const entry of modelCfg.variants) {
+          if (typeof entry === 'string') ids.add(entry);
+          else if (entry && typeof entry === 'object' && typeof entry.id === 'string') ids.add(entry.id);
+        }
+        if (!out.has(provider)) out.set(provider, new Map());
+        out.get(provider).set(model, ids);
+      }
+    }
+  }
+  return out;
 }
 
 // Configured MCP server ids. The block is either { servers: { ... } } or a
@@ -951,6 +988,67 @@ check('blanket shell allow (*) partners with git commit/push denies (plan also g
     return { ok: true, reason: `${holders} blanket shell agents guard git commit/push (${list})` };
   }
   return summarize(bad);
+});
+
+check('profile tiers.json validates, providers/variants resolve, and overlays match', () => {
+  const profiles = listTierProfiles(ROOT);
+  if (profiles.length === 0) return { ok: true, reason: 'no tier files' };
+  const cfg = loadBaseConfig().config;
+  const providers = providerIds(cfg);
+  const variants = declaredVariants(cfg);
+  const agentNames = agentMarkdownFiles().map((file) => path.basename(file, '.md'));
+  const bad = [];
+  let pins = 0;
+  for (const name of profiles) {
+    const tiersFile = path.join(ROOT, 'profiles', name, 'tiers.json');
+    let data;
+    try {
+      data = JSON.parse(readText(tiersFile));
+    } catch (error) {
+      bad.push(`${rel(tiersFile)}: not valid JSON (${firstLine(error.message)})`);
+      continue;
+    }
+    const shapeErrors = validateTiersData(data, agentNames);
+    if (shapeErrors.length > 0) {
+      for (const error of shapeErrors) bad.push(`${rel(tiersFile)}: ${error}`);
+      continue;
+    }
+    for (const tier of TIER_KEYS) {
+      const parsed = parseModelRef(data.tiers[tier]);
+      if (!parsed) continue; // shape validation already reported it
+      if (!providers.has(parsed.provider)) {
+        bad.push(
+          `${rel(tiersFile)}: tier "${tier}" provider "${parsed.provider}" is not a configured provider`,
+        );
+        continue;
+      }
+      // A referenced #variant must exist when the model declares variants in
+      // opencode.jsonc; models with no variants array are not constrained.
+      const declared = variants.get(parsed.provider);
+      const ids = declared ? declared.get(parsed.model) : undefined;
+      if (parsed.variant !== null && ids && !ids.has(parsed.variant)) {
+        bad.push(
+          `${rel(tiersFile)}: tier "${tier}" variant "#${parsed.variant}" is not declared for ` +
+            `${parsed.provider}/${parsed.model} (declared: ${[...ids].join(', ') || 'none'})`,
+        );
+      }
+    }
+    const overlayFile = path.join(ROOT, 'profiles', name, 'opencode.jsonc');
+    let overlayConfig;
+    try {
+      overlayConfig = parseJsonc(readText(overlayFile));
+    } catch (error) {
+      bad.push(`${rel(overlayFile)}: parse error: ${firstLine(error.message)}`);
+      continue;
+    }
+    const drifts = diffOverlay(buildExpansion(data), overlayConfig);
+    for (const drift of drifts) bad.push(`${rel(overlayFile)}: ${drift}`);
+    if (drifts.length === 0) pins += Object.keys(data.agents).length;
+  }
+  return summarize(
+    bad,
+    `${profiles.length} tier profiles validate, ${pins} agent pins match their generated overlays`,
+  );
 });
 
 // ---------------------------------------------------------------------------

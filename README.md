@@ -23,10 +23,9 @@ Personal opencode configuration. Managed as a public git repo for deployment acr
 9. Start opencode. It will resolve `opencode-dcp@2.0.5` (listed in `opencode.jsonc`) on first run; the local plugin package `plugin-src/fusion-audit` is also listed there and its dependencies are installed by `./install.sh`.
 10. The local plugin package `plugin-src/profile-switcher` (also listed in `opencode.jsonc`) is installed by `./install.sh` and provides in-session profile switching: `/profile` in the TUI plus a `Profile:` sidebar indicator, hot-swapping agent models without a service restart. Profile state is per opencode window directory, shared with `bin/oc` through `<CONFIG_DIR>/.active-profile` (format v1: an optional machine-wide `global\t<name>` fallback record plus one `location\t<absDir>\t<name>` record per directory; an explicit per-directory `default` overrides the global fallback; a legacy single-line file is read as the global record). `oc profile switch <name>` sets the CURRENT directory's profile; `oc profile switch --global <name>` writes the machine-wide fallback. Windows in different directories are fully independent, with separate profile records and no cross-window model migration; windows on the same directory share that directory's record and, within one shared service, converge with each other. A live switch rewrites the persisted models of the sessions the switching window currently has open as tabs (plus sessions created in that location afterward) - not the whole history - and only sessions whose model matches the previous profile target for their agent migrate: sessions manually moved to a different model are left alone, and sessions running at switch time pick up the new model once idle.
 11. The local plugin package `plugin-src/subagent-view` restores the v1-style live subagent model/token sidebar section. Its dependencies are installed by `./install.sh`.
-
-### lumo-tamer
-
-`install.sh` provisions a vendored checkout of [lumo-tamer](https://github.com/ZeroTricks/lumo-tamer) (third-party, GPLv3) into `./lumo-tamer/`, which is gitignored along with its `config.yaml`: it clones the repo if missing, runs `npm install && npm run build:all` if `dist/src/tamer.js` is missing, generates a two-line `config.yaml` with a fresh `server.apiKey` if none exists (an existing key is never regenerated or overwritten), and mirrors that key to `secrets/lumo_api_key` (mode 600) if that file is missing. So the key lives in exactly two places: `lumo-tamer/config.yaml` inside the gitignored checkout, and `secrets/lumo_api_key`. Re-running `./install.sh` once provisioned changes nothing. One-time interactive auth is still required: `cd lumo-tamer && node dist/src/tamer.js auth` - the `login` method needs Go (`install.sh` builds the `dist/proton-auth` helper when a Go toolchain is reachable), while `browser` and `rclone` do not need Go and are documented in `lumo-tamer/docs/authentication.md`.
+12. The local plugin package `plugin-src/fusion-bootstrap` injects the Fusion skill reminder as an extra system part (primaries get the delegation-template nudge, children get the "task prompt is the full spec" reminder). Its dependencies are installed by `./install.sh`.
+13. The local plugin package `plugin-src/fusion-channel` provides the steer/report channel (`/steer` command, `steer` tool, durable inbox log). It has no external dependencies; `./install.sh` installs it like the others.
+14. The local plugin package `plugin-src/subagent-cap` caps concurrent subagent spawns per profile (unlimited by default). Its dependencies are installed by `./install.sh`.
 
 ## What lives where
 
@@ -63,7 +62,7 @@ oc profile list
 
 Create a new cheap-local-style profile by cloning a tier-managed profile and retargeting every tier entry to one id (requires `jq`). The clone copies `tiers.json`; the overlay is regenerated from it, so the clone stays tier-managed:
 ```
-oc profile add experimental --clone default --swap-model "Amenable Thor 1/qwen3.8-27b"
+oc profile add experimental --clone default --swap-model "<provider>/<model-id>"
 ```
 
 For a tier-managed profile `--swap-model` rewrites all tier entries, so variants come from the new id. A legacy overlay without `tiers.json` instead has every `agents.*.model` plus `small_model` rewritten and `variant` fields stripped (the new provider may not define any).

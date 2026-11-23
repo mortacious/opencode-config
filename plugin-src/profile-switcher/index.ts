@@ -54,11 +54,11 @@
 //
 // Logging: console.log AND appendFileSync to
 // ~/.local/state/profile-switcher/profile-switcher.log (JSONL, lazy mkdir,
-// never-throw) - mirrors the lumo-supervisor log() pattern. Never logs key
+// never-throw) - mirrors the other local plugins' log() pattern. Never logs key
 // material (this plugin never reads keys).
 //
 // Options (ctx.options): profilesDir (default CONFIG_DIR/profiles), modelFallbacks
-// (default { "lumo-tamer/lumo-max": "Amenable Thor 1/qwen38-flash-next" }).
+// (default {} - add explicit source->target model id pairs to enable fallback).
 //
 // Agent model contract (verified against the installed @opencode/plugin
 // typings): Agent.Info.model is a STRUCTURED Model.Ref
@@ -111,9 +111,7 @@ const ACTIVE_FILE = join(CONFIG_DIR, ".active-profile");
 const STATE_DIR = join(homedir(), ".local", "state", SERVICE);
 const LOG_FILE = join(STATE_DIR, SERVICE + ".log");
 
-const DEFAULT_MODEL_FALLBACKS: Readonly<Record<string, string>> = {
-  "lumo-tamer/lumo-max": "Amenable Thor 1/qwen38-flash-next",
-};
+const DEFAULT_MODEL_FALLBACKS: Readonly<Record<string, string>> = {};
 
 // Debounce for provider.updated / model.updated re-evaluation.
 const REEVAL_DEBOUNCE_MS = 2000;
@@ -123,13 +121,12 @@ const REEVAL_DEBOUNCE_MS = 2000;
 // block in setup()).
 const SETTLE_DELAY_MS = 4000;
 
-// Last directory successfully created for LOG_FILE (lazy mkdir, mirrors
-// lumo-supervisor's logDirReady).
+// Last directory successfully created for LOG_FILE (lazy mkdir).
 let logDirReady = false;
 
 // Structured logging: console AND appended JSONL line in LOG_FILE with fields
-// {ts, service, level, message, ...extra} - the established lumo-supervisor
-// pattern. Never throws, never prints key material.
+// {ts, service, level, message, ...extra}. Never throws, never prints key
+// material.
 function log(
   level: "info" | "warn" | "error",
   message: string,

@@ -19,21 +19,7 @@
     "./plugin-src/fusion-audit",
     "./plugin-src/fusion-bootstrap",
     "./plugin-src/fusion-channel",
-    // disabled: lumo-tamer server requires tamer auth; re-enable after running it
-    // {
-    //   "package": "./plugin-src/lumo-supervisor",
-    //   "options": {
-    //     "checkoutDir": "~/.config/opencode/lumo-tamer"
-    //   }
-    // },
-    {
-      "package": "./plugin-src/profile-switcher",
-      "options": {
-        "modelFallbacks": {
-          "lumo-tamer/lumo-max": "Amenable Thor 1/qwen38-flash-next"
-        }
-      }
-    },
+    "./plugin-src/profile-switcher",
     "./plugin-src/subagent-view",
     {
       "package": "./plugin-src/subagent-cap",
@@ -54,11 +40,6 @@
     { "action": "external_directory", "resource": "~/.config/**", "effect": "allow" },
     { "action": "external_directory", "resource": "~/.local/**", "effect": "allow" },
     { "action": "external_directory", "resource": "~/.cache/**", "effect": "allow" },
-    // Narrow exception for the shared knowledge dir: agents loading web-search
-    // strategy modules via read would otherwise be denied. Redundant under the
-    // ~/.config/** allow above and kept as documented intent. .env (one level
-    // up, gitignored) stays blocked by the read denies below.
-    { "action": "external_directory", "resource": "~/.config/opencode/knowledge/**", "effect": "allow" },
     // Standard system directories.
     { "action": "external_directory", "resource": "/usr/**", "effect": "allow" },
     { "action": "external_directory", "resource": "/lib/**", "effect": "allow" },

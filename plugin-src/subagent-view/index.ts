@@ -4,8 +4,8 @@
 // subagent token/context display as a "Subagents (n)" sidebar section (the v2
 // regression is upstream #42367 / #38495). This server entry is a minimal
 // no-op so the package's "." export loads cleanly: it logs one INFO line and
-// returns. The logging sink mirrors the lumo-supervisor/profile-switcher JSONL
-// pattern (console + appendFileSync, lazy mkdir, never-throw) but is kept tiny.
+// returns. The logging sink mirrors the profile-switcher JSONL pattern
+// (console + appendFileSync, lazy mkdir, never-throw) but is kept tiny.
 //
 // All files ASCII only.
 

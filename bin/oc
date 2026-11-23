@@ -337,7 +337,7 @@ PROFILE_EOF
 
   if [ -n "$model" ]; then
     if [ -f "$PROFILES_DIR/$name/tiers.json" ]; then
-      # Tier-managed profile: retarget ALL four tiers, then regenerate the
+      # Tier-managed profile: retarget every tier entry, then regenerate the
       # overlay from tiers.json. Per-agent pin rewriting no longer applies:
       # the overlay is generated and is never edited directly.
       local tiers="$PROFILES_DIR/$name/tiers.json"

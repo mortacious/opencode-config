@@ -1,6 +1,6 @@
 # Search Topics Reference
 
-Per-topic source and query strategy, distilled from `knowledge/web-search-modules/`. Use the topic section that matches the question; each lists where the answers live and how to query for them.
+Per-topic source and query strategy. Use the topic section that matches the question; each lists where the answers live and how to query for them.
 
 ## General web
 

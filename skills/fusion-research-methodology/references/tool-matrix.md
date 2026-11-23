@@ -1,6 +1,6 @@
 # Research Tool Matrix
 
-Per-server reference detail behind the tool-selection table in SKILL.md. Distilled from `knowledge/web-search-modules/research-apis.md`.
+Per-server reference detail behind the tool-selection table in SKILL.md.
 
 ## Selection table
 

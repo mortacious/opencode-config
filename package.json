@@ -1,6 +1,6 @@
 {
   "scripts": {
-    "test": "node --test plugin-src/fusion-channel/test/ plugin-src/fusion-bootstrap/test/ scripts/test/"
+    "test": "node --test plugin-src/fusion-channel/test/ plugin-src/fusion-bootstrap/test/ plugin-src/subagent-cap/test/ scripts/test/"
   },
   "dependencies": {
     "@opencode-ai/plugin": "1.14.20",

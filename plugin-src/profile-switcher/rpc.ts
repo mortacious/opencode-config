@@ -26,18 +26,20 @@ export interface ProfileAgentModelEntry {
 }
 
 // One row of a profile's authored tier table (profiles/<name>/tiers.json):
-// the tier name and the model ref it resolves to.
+// the tier name, the model ref it resolves to, and the authored one-line
+// description of the work that tier suits.
 export interface ProfileTierModelEntry {
   tier: string;
   model: string;
+  description?: string;
 }
 
 export interface ProfileCurrentResult {
   active: string;
   agents?: ProfileAgentModelEntry[];
-  // The active profile's four tier models, in fixed order (big, medium,
-  // small, vision). Absent when the profile authors no readable tiers.json, in
-  // which case the sidebar falls back to the per-agent rows.
+  // The active profile's authored tier rows, in the order tiers.json declares
+  // them. Absent when the profile authors no readable tiers.json, in which case
+  // the sidebar falls back to the per-agent rows.
   tiers?: ProfileTierModelEntry[];
   // The profile name the tiers were read from; present exactly when tiers is.
   tierProfile?: string;
@@ -156,6 +158,7 @@ export const Profile = Rpc.define({
               properties: {
                 tier: { type: "string" },
                 model: { type: "string" },
+                description: { type: "string" },
               },
               required: ["tier", "model"],
               additionalProperties: false,
@@ -282,6 +285,7 @@ export const Profile = Rpc.define({
               properties: {
                 tier: { type: "string" },
                 model: { type: "string" },
+                description: { type: "string" },
               },
               required: ["tier", "model"],
               additionalProperties: false,

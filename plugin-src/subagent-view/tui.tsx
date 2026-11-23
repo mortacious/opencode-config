@@ -29,11 +29,15 @@
 //   - SessionInfo.cost gives spend (cumulative, matching OpenCode's own cost
 //     display).
 //
-// Each child renders as two single-line rows in a column box, matching the
-// default session overview: line 1 is the running marker, agent name, and task
+// Each child renders as two single-line rows in a column box: line 1 is the
+// group marker ("*" running, "-" idle), the bold agent name, and the task
 // label (the child session's title with a leading "@<agent> subagent" prefix
 // stripped, "Child session" when the title is absent or prefix-only); line 2 is
-// the model label, token/percent usage, and cost. Both lines truncate to the
+// 3-space indented and carries the model label, the usage figure (percent of
+// the context window when the model's limit is known, otherwise the compact
+// token count - never both), and cost. Running entries come first, then a
+// single blank line between the running and finished groups (none inside a
+// group). All rows truncate to the
 // measured sidebar width and never wrap: the sidebar.content slot is 37
 // columns in v2.3.2 (42 minus the 2+2 padding, plus the inner paddingRight 1)
 // and carries no width prop, so the root box's ref reads its layout-resolved
@@ -42,10 +46,15 @@
 //
 // The store does not update child tokens mid-run, so while at least one child
 // is running a 2s poll calls context.client.session.get({ sessionID }) plus a
-// lightweight context.client.message.list({ sessionID, limit: 1, order: "desc",
+// lightweight context.client.message.list({ sessionID, limit: 5, order: "desc",
 // type: "assistant" }) for each running child, and holds the newest assistant
 // message's tokens plus the store's cost/model in a local map that takes
 // precedence over the store; entries are dropped once a child stops running.
+// The newest assistant row may be an in-progress step with no tokens, so the
+// first row carrying tokens is used (preferring a completed step), and the
+// poll never falls back to the store's cumulative SessionInfo.tokens while any
+// message-level value is known - that fallback is what made the figure
+// oscillate.
 // Each poll also writes those message tokens into the shared per-child cache
 // (finishedTokens), so a finished child's figure is the last message-level
 // value observed during its run rather than the warm-up value fetched at the
@@ -53,11 +62,13 @@
 // message tokens once, cached by child id, when their row is first rendered; a
 // running child with no live entry yet also kicks off that same one-shot cached
 // fetch so the message-level figure shows within one round-trip instead of
-// waiting up to 2s. When nothing runs, the poll makes no network calls.
+// waiting up to 2s. A fetch that yields no tokens stays retryable. When nothing
+// runs, the poll makes no network calls.
 //
 // context.client.message.list() returns SessionMessagesResponse; with
-// limit: 1 / order: "desc" / type: "assistant" the newest assistant message is
-// data[0], and the tokens are read straight from it (no transcript download).
+// limit: 5 / order: "desc" / type: "assistant" the newest assistant messages
+// come newest-first in data, and the tokens are read straight from them (no
+// transcript download).
 //
 // A one-shot supplement enumerates the open session's children through
 // context.client.session.list({ directory, parentID, limit, cursor }) and merges
@@ -168,17 +179,18 @@ function totalTokens(tokens: TokenUsageInfo | undefined): number {
   );
 }
 
+// Usage column: percent of the context window when the model's limit is known
+// ("18%"), otherwise the compact token count. Never both.
 function usageText(
   tokens: TokenUsageInfo | undefined,
   contextLimit?: number
 ): string {
   const count = totalTokens(tokens);
-  let out = formatTokens(count);
   if (typeof contextLimit === "number" && contextLimit > 0) {
     const percent = Math.min(100, Math.round((count / contextLimit) * 100));
-    out += " (" + percent + "%)";
+    return percent + "%";
   }
-  return out;
+  return formatTokens(count);
 }
 
 function costText(cost: number): string {
@@ -235,22 +247,32 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
   const [width, setWidth] = createSignal(SIDEBAR_WIDTH_FALLBACK);
   let rootBox: BoxRenderable | undefined;
 
-  // One-shot fetch of the newest assistant message tokens for a child session,
-  // using the lightweight message.list endpoint (limit 1, newest first, only
-  // assistant messages) instead of downloading the child's whole transcript via
-  // session.context(). Failures fall back to the store's SessionInfo.tokens.
+  // One-shot fetch of the newest assistant message usage for a child session,
+  // using the lightweight message.list endpoint (a few newest assistant
+  // messages, newest first) instead of downloading the child's whole
+  // transcript via session.context(). The newest assistant row can be an
+  // in-progress step that carries no tokens, so the first row with tokens is
+  // used, preferring a completed step; if the page holds no completed step the
+  // newest row that does carry tokens wins.
   async function fetchLatestAssistantTokens(
     id: string
   ): Promise<TokenUsageInfo | undefined> {
     const res = await context.client.message.list({
       sessionID: id,
-      limit: 1,
+      limit: 5,
       order: "desc",
       type: "assistant",
     });
-    const message = res?.data?.[0];
-    if (!message || message.type !== "assistant") return undefined;
-    return message.tokens;
+    const messages = res?.data ?? [];
+    let fallback: TokenUsageInfo | undefined;
+    for (const message of messages) {
+      if (!message || message.type !== "assistant") continue;
+      const tokens = message.tokens;
+      if (!tokens) continue;
+      if (message.time?.completed !== undefined) return tokens;
+      if (!fallback) fallback = tokens;
+    }
+    return fallback;
   }
 
   // Store the newest assistant message tokens for a child in the shared cache.
@@ -266,24 +288,32 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
   }
 
   // One-shot (per child) fetch of the newest assistant message tokens, cached
-  // by child id. Failures fall back to the store's SessionInfo.tokens.
+  // by child id. Only defined tokens are cached, and a fetch that yields
+  // nothing (or fails) is left retryable instead of being marked done
+  // permanently.
   async function fetchFinishedTokens(id: string): Promise<void> {
     try {
       const tokens = await fetchLatestAssistantTokens(id);
-      if (!tokens) return;
+      if (!tokens) {
+        finishedRequested.delete(id);
+        return;
+      }
       // Do not clobber a fresher value the running-child poll may have cached
       // while this warm-up fetch was in flight.
       if (finishedTokens().has(id)) return;
       cacheFinishedTokens(id, tokens);
     } catch {
-      // best-effort; the store fallback covers the rest
+      // best-effort; the store fallback covers the rest and a later render
+      // retries this child
+      finishedRequested.delete(id);
     }
   }
 
   // Returns cached message tokens for any child, kicking off the one-time fetch
   // on first request. Used for finished children and as a warm-up for a running
   // child that has no live poll entry yet. Plain Set guards against repeated
-  // fetches across re-renders (including the "no tokens found" case).
+  // fetches across re-renders; an empty or failed fetch drops the guard above
+  // so a later render can retry.
   function ensureFinishedTokens(id: string): TokenUsageInfo | undefined {
     const cached = finishedTokens().get(id);
     if (cached) return cached;
@@ -324,7 +354,17 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
           } catch {
             msgTokens = undefined;
           }
-          const tokens = msgTokens ?? info?.tokens;
+          // Never fall back to the cumulative SessionInfo.tokens while a
+          // message-level value is known: it is the session-wide total, so it
+          // jumps and overshoots every time an in-progress step has no tokens
+          // yet. Order: this poll's message tokens, then the previous live
+          // value, then the cached message value, and only for a brand-new
+          // session with no assistant usage at all the store's total.
+          const tokens =
+            msgTokens ??
+            prior?.tokens ??
+            finishedTokens().get(child.id) ??
+            info?.tokens;
           // Keep the shared cache fresh while running so the value survives the
           // live-entry drop when the child finishes (only message-level tokens,
           // never the cumulative SessionInfo.tokens fallback).
@@ -444,18 +484,6 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
     return out;
   });
 
-  // Render-only subset of children(): every running child, plus the first 3
-  // non-running children in the existing sort order (the 3 most recently
-  // updated finished ones). The header still reports the true total.
-  const visible = createMemo<SessionInfo[]>(() => {
-    const all = children();
-    const running = all.filter((info) => statusOf(info.id) === "running");
-    const finished = all
-      .filter((info) => statusOf(info.id) !== "running")
-      .slice(0, 3);
-    return running.concat(finished);
-  });
-
   // Single-line task label for a child row, from the child session's title
   // alone (no transcript fetch). Upstream titles a child "@<agent> subagent
   // <task>"; that prefix is stripped case-insensitively so the row shows the
@@ -481,15 +509,20 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
     return title;
   }
 
-  // Two single-line rows per child (parity with the default session overview):
-  //   line 1: status marker + agent + task label
-  //   line 2: model + usage (tokens and percent-of-context) + cost
-  // Both lines are cut to the measured sidebar width and never wrap. Line 1 is
-  // truncated as a whole, so the task label carries the ellipsis when space
-  // runs out. Line 2 caps the model label first, so the usage and cost columns
-  // stay visible on a narrow sidebar.
+  // Two single-line rows per child, rendered as a run of entries:
+  //   line 1: status bullet ("*" running, "-" idle), bold agent, task label,
+  //           one gap column between each
+  //   line 2: 3-space indent, model, usage (percent-of-context, or the token
+  //           count when the limit is unknown), cost
+  // Every text is cut to the measured sidebar width and never wraps. Line 1's
+  // task label gets the width left after the 1-column bullet, its gap, the
+  // agent name, and the agent-to-label gap, so the label carries the ellipsis
+  // when space runs out. Line 2 caps the model label first, so the usage and
+  // cost columns stay visible on a narrow sidebar.
   function linesFor(info: SessionInfo): {
-    line1: string;
+    bullet: string;
+    agent: string;
+    title: string;
     line2: string;
     running: boolean;
   } {
@@ -511,20 +544,119 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
     // Stage 1 of line 2: the model label may take at most ~45% of the width,
     // so the usage and cost columns survive.
     const modelMax = Math.max(10, Math.floor(width() * 0.45));
-    const line1 = (running ? "* " : "  ") + agent + "  " + taskLabel(info);
-    const line2 =
-      truncate(model.label, modelMax) +
-      "  " +
-      usageText(tokens, model.contextLimit) +
-      "  " +
-      costText(liveEntry?.cost ?? info.cost);
+    const bullet = running ? "*" : "-";
+    const title = truncate(
+      taskLabel(info),
+      Math.max(0, max - agent.length - 3)
+    );
+    const line2 = truncate(
+      "   " +
+        truncate(model.label, modelMax) +
+        "  " +
+        usageText(tokens, model.contextLimit) +
+        "  " +
+        costText(liveEntry?.cost ?? info.cost),
+      max
+    );
     return {
-      line1: truncate(line1, max),
-      line2: truncate(line2, max),
+      bullet,
+      agent,
+      title,
+      line2,
       running,
     };
   }
 
+  // Running entries first (children() is already sorted running-first), then
+  // exactly one blank spacer line between the two groups when both exist.
+  const runningChildren = createMemo<SessionInfo[]>(() =>
+    children().filter((info) => statusOf(info.id) === "running")
+  );
+  const finishedChildren = createMemo<SessionInfo[]>(() =>
+    children().filter((info) => statusOf(info.id) !== "running")
+  );
+
+  // One entry block: no margin of its own (the only gap is the single spacer
+  // between the running and finished groups). A child/subagent session is not
+  // tab-openable (tabs are root-session tabs only), so a click navigates instead;
+  // best-effort and silent.
+  function entry(info: SessionInfo) {
+    const row = createMemo(() => linesFor(info));
+    return (
+      <box
+        flexDirection="column"
+        onMouseDown={() => {
+          try {
+            context.ui.router.navigate({
+              type: "session",
+              sessionID: info.id,
+            });
+          } catch {
+            // navigation is best-effort
+          }
+        }}
+      >
+        <box flexDirection="row" gap={1}>
+          <text
+            fg={
+              row().running
+                ? context.theme.text.base
+                : context.theme.text.muted
+            }
+            wrapMode="none"
+            truncate
+          >
+            {row().bullet}
+          </text>
+          <text
+            fg={
+              row().running
+                ? context.theme.text.base
+                : context.theme.text.muted
+            }
+            wrapMode="none"
+            truncate
+          >
+            <b>{row().agent}</b>
+          </text>
+          <text
+            fg={
+              row().running
+                ? context.theme.text.base
+                : context.theme.text.muted
+            }
+            wrapMode="none"
+            truncate
+          >
+            {row().title}
+          </text>
+        </box>
+        <text fg={context.theme.text.muted} wrapMode="none" truncate>
+          {row().line2}
+        </text>
+      </box>
+    );
+  }
+
+  // Height cap for the inner list. Derived from the terminal, not from this
+  // box (whose height is whatever it laid out to), so the cap does not chase
+  // itself. 3 to 10 rows of the terminal's 30%, and each row is two text lines.
+  const cap = () => {
+    const terminalHeight = context.renderer?.terminalHeight ?? 40;
+    const visibleRows = Math.max(
+      3,
+      Math.min(10, Math.floor(terminalHeight * 0.3)),
+    );
+    return visibleRows * 2;
+  };
+
+  // Every child is rendered, but only the list scrolls: the rows sit inside a
+  // bounded inner scrollbox (about 30% of the terminal, 3 to 10 rows) so the
+  // outer sidebar keeps its own height instead of growing with the child
+  // count. The header stays fixed above the list. The inner box is not
+  // focusable, so focus stays with the outer sidebar and its j/k keys, and a
+  // wheel event is stopped only while the inner list still has room to move;
+  // at the top and bottom edges the outer sidebar scrolls instead.
   return (
     <Show when={children().length > 0}>
       <box
@@ -559,52 +691,35 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
           </text>
         </box>
         <Show when={children().length <= 2 || view.open}>
-          <For each={visible()}>
-            {(info) => {
-              const row = createMemo(() => linesFor(info));
-              return (
-                <box
-                  flexDirection="column"
-                  onMouseDown={() => {
-                    // A child/subagent session is not tab-openable (tabs are
-                    // root-session tabs only), so navigation is the only
-                    // correct behavior. Best-effort and silent.
-                    try {
-                      context.ui.router.navigate({
-                        type: "session",
-                        sessionID: info.id,
-                      });
-                    } catch {
-                      // navigation is best-effort
-                    }
-                  }}
-                >
-                  <text
-                    fg={
-                      row().running
-                        ? context.theme.text.base
-                        : context.theme.text.muted
-                    }
-                    wrapMode="none"
-                    truncate
-                  >
-                    {row().line1}
-                  </text>
-                  <text
-                    fg={
-                      row().running
-                        ? context.theme.text.base
-                        : context.theme.text.muted
-                    }
-                    wrapMode="none"
-                    truncate
-                  >
-                    {row().line2}
-                  </text>
-                </box>
-              );
+          <scrollbox
+            maxHeight={cap()}
+            scrollY
+            scrollX={false}
+            focusable={false}
+            scrollbarOptions={{ visible: false }}
+            onMouseScroll={function (event) {
+              if (event.type !== "scroll") return;
+              const room = this.scrollHeight - this.viewport.height;
+              if (room <= 0) return;
+              const dir = event.scroll?.direction;
+              if (
+                (dir === "down" && this.scrollTop < room) ||
+                (dir === "up" && this.scrollTop > 0)
+              ) {
+                event.stopPropagation();
+              }
             }}
-          </For>
+          >
+            <For each={runningChildren()}>{(info) => entry(info)}</For>
+            <Show
+              when={
+                runningChildren().length > 0 && finishedChildren().length > 0
+              }
+            >
+              <box height={1} />
+            </Show>
+            <For each={finishedChildren()}>{(info) => entry(info)}</For>
+          </scrollbox>
         </Show>
       </box>
     </Show>

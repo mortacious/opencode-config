@@ -10,13 +10,14 @@ Mechanical edits, refactors, find-and-replace, lint fixes, tests, applying a pre
 
 - Delegate when: the change is mechanical or visual and you can name the exact files and the exact edit.
 - Don't delegate when: intent is ambiguous, the approach is undecided, or the judgment is the deliverable. Decide first, then delegate what is left.
-- A visual/UI task runs on the vision tier; the design skills carry the craft method.
+- A visual/UI task runs on the tier whose description covers image input; the design skills carry
+  the craft method.
 
 ## analyst - read-only generalist
 
 Codebase exploration, external research, planning from a settled summary, visual inspection, and red-team critique. Never edits, never delegates.
 
-- Delegate when: you need condensed discovery rather than raw search output; multi-source external synthesis; an ordered plan from a settled design (task names `fusion-planning`); an image, screenshot, or PDF you cannot read yourself (vision tier); or an adversarial pass on a design or claim (task names `fusion-sparring`).
+- Delegate when: you need condensed discovery rather than raw search output; multi-source external synthesis; an ordered plan from a settled design (task names `fusion-planning`); an image, screenshot, or PDF you cannot read yourself (a tier whose description covers image input); or an adversarial pass on a design or claim (task names `fusion-sparring`).
 - Don't delegate when: you already know the exact path and only need to review it - `read` that file yourself; the decision is still open (settle it with the user first); or you are asking it to pick the approach for you.
 - Single-shot external lookups you do yourself via `ddgs`/`websearch`; an exploration task that needs no synthesis stays cheap.
 - Planning and red-team tasks must name the skill the analyst loads; the analyst body does not carry a method of its own.

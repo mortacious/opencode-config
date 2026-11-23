@@ -52,9 +52,9 @@ _Expected: <what the output should show>._
 
 ## Model tier
 
-<!-- REQUIRED: one of big | medium | small | vision. Reviewer's default tier is medium; a whole-branch final review uses big. Name the overriding tier's model id from the injected Model tiers table. -->
+<!-- REQUIRED: one of the tier names from the injected tier table (default: this agent's tier). Name a tier only from that table. -->
 
-- Tier: big | medium | small | vision
+- Tier: one of the tier names from the injected tier table (default: this agent's tier)
 - Model override: `<provider>/<model>` from the injected table, or "none - default"
 
 ## Report contract

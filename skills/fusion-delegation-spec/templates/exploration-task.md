@@ -33,15 +33,6 @@ _Map <area> so that <decision> can be made._
 - Grep and glob skip gitignored paths; if an ignored area matters, read explicit paths and say the answer rests on that.
 - Do not redesign or recommend changes - report what exists.
 
-## Thoroughness
-
-<!-- REQUIRED: pick exactly one level. Do not leave this open - the level decides when the search stops. -->
-
-- Level: quick | medium | very thorough
-- quick: a single targeted search; answer with the direct hits and stop.
-- medium: follow imports and callers one hop; confirm the answer against at least one read of the actual code.
-- very thorough: trace the full call path, check tests and config, and list anything suspicious found along the way.
-
 ## Verification
 
 <!-- How the analyst confirms the answer is complete rather than a lucky hit. -->
@@ -58,9 +49,9 @@ _Map <area> so that <decision> can be made._
 
 ## Model tier
 
-<!-- REQUIRED: one of big | medium | small | vision. Analyst's default tier is medium; a narrow single-file lookup may use small. Name the overriding tier's model id from the injected Model tiers table. -->
+<!-- REQUIRED: one of the tier names from the injected tier table (default: this agent's tier). Name a tier only from that table. -->
 
-- Tier: big | medium | small | vision
+- Tier: one of the tier names from the injected tier table (default: this agent's tier)
 - Model override: `<provider>/<model>` from the injected table, or "none - default"
 
 ## Report contract
@@ -73,7 +64,7 @@ Condensed report - this is input for an expensive orchestrator; no bulk output.
 - **STATUS**: complete | partial | blocked
 - **FINDINGS**: the answer first, then the map - max 10 bullets, each with a citation or `path:line` location; one line per role
 - **VERIFIED**: what was read or run to confirm, separated from inference
-- **GAPS**: what was not covered at the requested thoroughness and why, or "none" - max 5
+- **GAPS**: what was not covered within the asked scope and why, or "none" - max 5
 
 ## Stop conditions
 
@@ -82,5 +73,5 @@ Condensed report - this is input for an expensive orchestrator; no bulk output.
 - The requested area does not exist under the given paths - report where the search was run.
 - The question requires running code or tests (outside the read-only analyst role).
 - Two files disagree about the contract and no single answer is possible.
-- The requested thoroughness cannot be met within reasonable effort - report the partial map.
+- The asked scope cannot be covered within reasonable effort - report the partial map.
 - The work outgrows the spec - more files, different files, or a concern the spec did not name. Stop and report partial instead of expanding scope silently.

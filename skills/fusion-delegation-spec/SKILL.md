@@ -53,11 +53,11 @@ Do not spec the model internals or the analysis narrative; those stay the execut
 | --- | --- | --- |
 | Mechanical edits, refactors, find-and-replace, lint fixes, tests | sidekick | Default executor; full edit + shell |
 | Commit or push execution after you have decided and verified the change | sidekick (`fusion-commit`) | Executes the exact commit spec; you verify the hash/ref |
-| Visual/UI implementation - components, layout, styling | sidekick | Same shell; runs on the vision tier and loads the design skill the task names |
+| Visual/UI implementation - components, layout, styling | sidekick | Same shell; runs on the tier whose description covers image input, and loads the design skill the task names |
 | Broad codebase search and structure questions | analyst | Read-only; keeps raw search output out of your context |
 | Multi-source external research and synthesis | analyst | Single-shot lookups you do yourself |
 | Ordered plan from a settled design summary | analyst | Task names `fusion-planning` |
-| Reading an image, screenshot, or PDF you cannot see | analyst | Vision tier; task names the inspection questions |
+| Reading an image, screenshot, or PDF you cannot see | analyst | The tier whose description covers image input; task names the inspection questions |
 | Plan critique before implementation, diff audit before commit | reviewer | Read-only; critiques a position, does not supply one |
 | Red-team pass on approach, architecture, tradeoffs | analyst | Task names `fusion-sparring`; real decisions only, not syntax checks |
 | Large independent batches in isolated worktrees | orchestrator creates the worktree, sidekick executes in it | Soft rule, orchestrator-only creation; integration decided after review |
@@ -125,14 +125,9 @@ One concern per task, small enough to finish in a single focused executor sessio
 
 ## Model Tiers
 
-Every profile authors `profiles/<name>/tiers.json`, mapping four tiers to literal model ids and every agent to a default tier. `scripts/tiers-sync.mjs` expands that mapping into the profile's generated agent pins, and fusion-bootstrap injects the active table into primary context. Pick a tier on every delegation and pass its model id as the `subagent` call's `model` parameter when overriding.
+The active profile's `tiers.json` defines the tier names, their models, and a one-line description of each; fusion-bootstrap injects that table into primary context. Choose the tier whose description matches the work, default to the delegating agent's tier, and override one step when the work is clearly cheaper or harder. If a fix loop stalls, choose a stronger tier when the profile defines one. Modality constraints are stated in the tier description, so never route image input to a tier whose description does not cover it. Pass the chosen tier's literal model id as the `subagent` call's `model` parameter. Never hardcode a tier name or model id: profiles may define different or additional tiers.
 
-- **big** - hard reasoning: novel design, ambiguous tradeoffs, study design and statistical analysis, whole-branch final review.
-- **medium** - default implementation, routine review, research synthesis.
-- **small** - clearly mechanical work: single-file edits, find-and-replace, mechanical data conversion, plot regeneration.
-- **vision** - any task whose input includes images, screenshots, or diagrams; a modality constraint, not a size step.
-
-Default to the delegating agent's tier from the injected table. Downgrade for clearly mechanical work, and escalate one size on fix-loop round 2+ (a failed first pass means the task was mis-sized) - but never below the modality requirement: a vision task stays on the vision tier. Final whole-branch review always uses `big`. Turn count beats token price: a cheap model that needs three rounds costs more wall-clock and more of your context than one pass on the right tier.
+Turn count beats token price: a cheap model that needs three rounds costs more wall-clock and more of your context than one pass on the right tier.
 
 ## Steering
 

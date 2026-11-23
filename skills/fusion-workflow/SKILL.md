@@ -9,6 +9,8 @@ description: Use when starting a session or task in the Fusion setup, or when un
 
 This config exposes one primary, `orchestrator`, plus thin subagent capability shells (`sidekick`, `analyst`, `reviewer`). `sidekick` executes (including visual work and commits), `analyst` is the read-only generalist (exploration, research, planning, visual inspection, red-team), and `reviewer` is the audit gate. The shells carry permissions and report format; the method lives in skills. Skills are advertised session-wide, so nothing selects one for you: you load the matching skill with the `skill` tool before acting. Loading it is cheap; skipping it means re-deriving a method that already exists here.
 
+The roster and skill catalog are authoritative, discovered from `agents/*.md` and `skills/`; the names and the map below are current examples, so update them as components change.
+
 ## When to Use
 
 - At session or task start, before the first tool call on real work.
@@ -35,7 +37,7 @@ Do not use this skill in place of a specific one. It routes; it does not carry t
 | Delegation, task sizing, model tier | `fusion-delegation-spec` |
 | Planning an implementation from a settled design | `fusion-planning` through `analyst` |
 | Red-team critique of a design, approach, or claim | `fusion-sparring` through `analyst` |
-| Visual inspection of an image, screenshot, or PDF | `analyst` on the vision tier |
+| Visual inspection of an image, screenshot, or PDF | `analyst` on the tier whose description covers image input |
 | Implementing or committing a change | `sidekick` (commits via `fusion-commit`) |
 | Auditing a code diff or a scientific artifact | `fusion-code-review` |
 | Critiquing a plan before execution | `plan-review` |

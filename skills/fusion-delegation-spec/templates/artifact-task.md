@@ -51,9 +51,9 @@ _Claim: <what the artifact must show>. Artifact: <section, figure, or table>._
 
 ## Model tier
 
-<!-- REQUIRED: one of big | medium | small | vision. Name the agent's default tier unless overriding, then give that tier's model id from the injected Model tiers table. -->
+<!-- REQUIRED: one of the tier names from the injected tier table (default: this agent's tier). Name a tier only from that table. -->
 
-- Tier: big | medium | small | vision
+- Tier: one of the tier names from the injected tier table (default: this agent's tier)
 - Model override: `<provider>/<model>` from the injected table, or "none - default"
 
 ## Report contract

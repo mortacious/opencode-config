@@ -10,6 +10,9 @@
 //   6. the permission brief: sidekick (edit allow, shell allow-with-denies),
 //      reviewer (shell deny-by-default listing allowed families), primary
 //      (brief plus tier table), and missing agent info (no brief, no throw)
+//   7. capability detection: any agent whose info reports mode "primary" gets
+//      the primary nudge (a custom name proves no roster is hardcoded), and
+//      a root session whose agent mode cannot be resolved gets no nudge
 //
 // Run: node --test plugin-src/fusion-bootstrap/test/
 
@@ -28,10 +31,13 @@ const TMP_BASE = existsSync("/tmp/opencode") ? "/tmp/opencode" : os.tmpdir();
 
 const TIERS = {
   tiers: {
-    big: "test-provider/big-model#max",
-    medium: "test-provider/medium-model",
-    small: "test-provider/small-model",
-    vision: "test-provider/vision-model",
+    big: { model: "test-provider/big-model#max", description: "hard reasoning" },
+    medium: {
+      model: "test-provider/medium-model",
+      description: "default implementation",
+    },
+    small: { model: "test-provider/small-model", description: "mechanical edits" },
+    vision: { model: "test-provider/vision-model", description: "image inspection" },
   },
   agents: {
     orchestrator: "big",
@@ -86,6 +92,7 @@ async function getSession({ sessionID }) {
 const AGENTS = {
   orchestrator: {
     name: "orchestrator",
+    mode: "primary",
     permissions: [
       { action: "read", resource: "*", effect: "allow" },
       { action: "edit", resource: "*", effect: "deny" },
@@ -101,6 +108,7 @@ const AGENTS = {
   },
   sidekick: {
     name: "sidekick",
+    mode: "subagent",
     permissions: [
       { action: "read", resource: "*", effect: "allow" },
       { action: "edit", resource: "*", effect: "allow" },
@@ -112,6 +120,7 @@ const AGENTS = {
   },
   reviewer: {
     name: "reviewer",
+    mode: "subagent",
     permissions: [
       { action: "edit", resource: "*", effect: "deny" },
       { action: "webfetch", resource: "*", effect: "deny" },
@@ -143,6 +152,7 @@ test("primary carries the active profile's tier table; child does not", async ()
     configDir: root,
     env: demoEnv(root),
     getSession,
+    getAgent,
   });
 
   for (const agent of ["orchestrator"]) {
@@ -151,16 +161,26 @@ test("primary carries the active profile's tier table; child does not", async ()
     const text = systemText(primary);
     assert.ok(text.startsWith("Fusion bootstrap:"), agent);
     assert.ok(text.includes('Model tiers (profile "demo"'), agent);
-    assert.ok(text.includes("big: test-provider/big-model#max"), agent);
-    assert.ok(text.includes("medium: test-provider/medium-model"), agent);
-    assert.ok(text.includes("small: test-provider/small-model"), agent);
-    assert.ok(text.includes("vision: test-provider/vision-model"), agent);
+    assert.ok(text.includes("- big: test-provider/big-model#max - hard reasoning"), agent);
+    assert.ok(
+      text.includes("- medium: test-provider/medium-model - default implementation"),
+      agent,
+    );
+    assert.ok(
+      text.includes("- small: test-provider/small-model - mechanical edits"),
+      agent,
+    );
+    assert.ok(
+      text.includes("- vision: test-provider/vision-model - image inspection"),
+      agent,
+    );
     assert.ok(
       text.includes("Agent defaults: analyst=medium, orchestrator=big, reviewer=medium, sidekick=medium"),
       agent,
     );
-    assert.ok(text.includes("whole-branch final review uses big"), agent);
+    assert.ok(text.includes("choose the tier whose description matches the work"), agent);
     assert.ok(text.includes("subagent tool's model parameter"), agent);
+    assert.ok(!text.includes("whole-branch final review uses big"), agent);
   }
 
   const child = { agent: "analyst", sessionID: "ses_child", system: [] };
@@ -170,12 +190,63 @@ test("primary carries the active profile's tier table; child does not", async ()
   assert.ok(!childText.includes("Model tiers"), "child injection has no tier table");
 });
 
+test("custom tier names render from the file with nothing hardcoded", async () => {
+  const custom = {
+    tiers: {
+      deep: { model: "test-provider/deep-model#max", description: "deep reasoning" },
+      quick: { model: "test-provider/quick-model", description: "quick mechanical edits" },
+    },
+    agents: { orchestrator: "deep", sidekick: "quick" },
+  };
+  const root = makeConfigDir({ tiers: custom });
+  const handler = createContextHandler({
+    configDir: root,
+    env: demoEnv(root),
+    getSession,
+    getAgent,
+  });
+  const primary = { agent: "orchestrator", sessionID: "ses_root", system: [] };
+  await handler(primary);
+  const text = systemText(primary);
+  assert.ok(text.includes("- deep: test-provider/deep-model#max - deep reasoning"));
+  assert.ok(text.includes("- quick: test-provider/quick-model - quick mechanical edits"));
+  assert.ok(text.includes("Agent defaults: orchestrator=deep, sidekick=quick"));
+  assert.ok(
+    !/(^|\n)- (big|medium|small|vision): /.test(text),
+    "no hardcoded tier names leak into the block",
+  );
+  assert.ok(text.indexOf("- deep:") < text.indexOf("- quick:"), "file order is preserved");
+});
+
+test("a tier without a description yields no tier table (fail-soft)", async () => {
+  const broken = {
+    tiers: {
+      big: { model: "test-provider/big-model#max", description: "hard reasoning" },
+      medium: { model: "test-provider/medium-model" },
+    },
+    agents: { orchestrator: "big", sidekick: "medium" },
+  };
+  const root = makeConfigDir({ tiers: broken });
+  const handler = createContextHandler({
+    configDir: root,
+    env: demoEnv(root),
+    getSession,
+    getAgent,
+  });
+  const primary = { agent: "orchestrator", sessionID: "ses_root", system: [] };
+  await handler(primary);
+  const text = systemText(primary);
+  assert.ok(text.includes("check the skill catalog"));
+  assert.ok(!text.includes("Model tiers"));
+});
+
 test("missing tiers.json injects the primary reminder without a tier table", async () => {
   const root = makeConfigDir();
   const handler = createContextHandler({
     configDir: root,
     env: demoEnv(root),
     getSession,
+    getAgent,
   });
   const primary = { agent: "orchestrator", sessionID: "ses_root", system: [] };
   await handler(primary);
@@ -190,6 +261,7 @@ test("invalid tiers.json does not throw and injects no tier table", async () => 
     configDir: root,
     env: demoEnv(root),
     getSession,
+    getAgent,
   });
   const primary = { agent: "orchestrator", sessionID: "ses_root", system: [] };
   await handler(primary);
@@ -200,10 +272,83 @@ test("invalid tiers.json does not throw and injects no tier table", async () => 
 
 test("profile resolution falls back to the .active-profile global record", async () => {
   const root = makeConfigDir({ tiers: TIERS, activeProfile: "global\tdemo\n" });
-  const handler = createContextHandler({ configDir: root, env: {}, getSession });
+  const handler = createContextHandler({ configDir: root, env: {}, getSession, getAgent });
   const primary = { agent: "orchestrator", sessionID: "ses_root", system: [] };
   await handler(primary);
   assert.ok(systemText(primary).includes('Model tiers (profile "demo"'));
+});
+
+test("a custom primary name gets the primary nudge (no hardcoded roster)", async () => {
+  const custom = {
+    tiers: {
+      deep: { model: "test-provider/deep-model#max", description: "deep reasoning" },
+      quick: { model: "test-provider/quick-model", description: "quick mechanical edits" },
+    },
+    agents: { lead: "deep", helper: "quick" },
+  };
+  const root = makeConfigDir({ tiers: custom });
+  const handler = createContextHandler({
+    configDir: root,
+    env: demoEnv(root),
+    getSession,
+    getAgent: async ({ agentID }) =>
+      agentID === "lead"
+        ? {
+            data: {
+              name: "lead",
+              mode: "primary",
+              permissions: [
+                { action: "read", resource: "*", effect: "allow" },
+                { action: "shell", resource: "*", effect: "allow" },
+                { action: "shell", resource: "git commit*", effect: "deny" },
+              ],
+            },
+          }
+        : undefined,
+  });
+  const primary = { agent: "lead", sessionID: "ses_root", system: [] };
+  await handler(primary);
+  const text = systemText(primary);
+  assert.ok(text.startsWith("Fusion bootstrap:"));
+  assert.ok(text.includes("check the skill catalog"));
+  assert.ok(text.includes('Fusion permissions for agent "lead"'));
+  assert.ok(text.includes('Model tiers (profile "demo"'));
+  assert.ok(text.includes("Agent defaults: helper=quick, lead=deep"));
+});
+
+test("a root session without a resolved primary mode gets no nudge (fail-soft)", async () => {
+  const root = makeConfigDir({ tiers: TIERS });
+  const variants = [
+    {},
+    { getAgent: async () => undefined },
+    { getAgent: async () => ({ data: { name: "ghost" } }) },
+    {
+      getAgent: async () => {
+        throw new Error("agent lookup failed");
+      },
+    },
+  ];
+  for (const extra of variants) {
+    const handler = createContextHandler({
+      configDir: root,
+      env: demoEnv(root),
+      getSession,
+      ...extra,
+    });
+    const session = { agent: "lead", sessionID: "ses_root", system: [] };
+    await handler(session);
+    assert.equal(session.system.length, 0, "no part without a resolved primary mode");
+  }
+
+  const handler = createContextHandler({
+    configDir: root,
+    env: demoEnv(root),
+    getSession,
+    getAgent,
+  });
+  const subagentOnRoot = { agent: "reviewer", sessionID: "ses_root", system: [] };
+  await handler(subagentOnRoot);
+  assert.equal(subagentOnRoot.system.length, 0, "subagent mode is not a primary");
 });
 
 test("child receives the permission brief: sidekick edit allow, shell allow-with-denies", async () => {
@@ -334,6 +479,12 @@ test("plugin setup registers a hook that injects the real default-profile tiers"
     const text = systemText(primary);
     assert.ok(text.includes('Model tiers (profile "default"'));
     assert.ok(text.includes("opencode-go/glm-5.3-flash"));
+    assert.ok(
+      text.includes(
+        "- vision: opencode-go/glm-5.3-flash - image, screenshot, diagram, and visual PDF inspection",
+      ),
+      "the real default profile's authored description is rendered",
+    );
 
     const child = { agent: "sidekick", sessionID: "ses_child", system: [] };
     await handler(child);

@@ -48,9 +48,9 @@ _Answer <question> in order to decide <decision>._
 
 ## Model tier
 
-<!-- REQUIRED: one of big | medium | small | vision. Analyst's default tier is medium. Name the overriding tier's model id from the injected Model tiers table (for example when the answer hinges on conflicting-source synthesis). -->
+<!-- REQUIRED: one of the tier names from the injected tier table (default: this agent's tier). Name a tier only from that table. -->
 
-- Tier: big | medium | small | vision
+- Tier: one of the tier names from the injected tier table (default: this agent's tier)
 - Model override: `<provider>/<model>` from the injected table, or "none - default"
 
 ## Report contract

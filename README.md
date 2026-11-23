@@ -34,7 +34,7 @@ See `REPO.md` for the authoritative layout map and `AGENTS.md` for the Fusion de
 
 ## Profiles
 
-A home-grown profile system lets you launch opencode under different model/config overlays. Each profile authors `profiles/<name>/tiers.json` - the four tier models (`big`, `medium`, `small`, `vision`) plus a default tier per agent - and `scripts/tiers-sync.mjs` expands it into a GENERATED `profiles/<name>/opencode.jsonc`. `bin/oc` sets that overlay as `OPENCODE_CONFIG` (opencode deep-merges it on top of the base config) after re-syncing it. Edit `tiers.json`, never the generated overlay. Profiles travel with the repo via `git pull`.
+A home-grown profile system lets you launch opencode under different model/config overlays. Each profile authors `profiles/<name>/tiers.json`, which defines the tier names, their models, one-line descriptions, and a default tier per agent; a profile may define different or additional tiers. `scripts/tiers-sync.mjs` expands it into a GENERATED `profiles/<name>/opencode.jsonc`. `bin/oc` sets that overlay as `OPENCODE_CONFIG` (opencode deep-merges it on top of the base config) after re-syncing it. Edit `tiers.json`, never the generated overlay. Profiles travel with the repo via `git pull`.
 
 ### Install
 
@@ -61,12 +61,12 @@ oc profile list
 
 ### Fork a profile (optionally swapping every model)
 
-Create a new cheap-local-style profile by cloning a tier-managed profile and retargeting all four of its tier models to one id (requires `jq`). The clone copies `tiers.json`; the overlay is regenerated from it, so the clone stays tier-managed:
+Create a new cheap-local-style profile by cloning a tier-managed profile and retargeting every tier entry to one id (requires `jq`). The clone copies `tiers.json`; the overlay is regenerated from it, so the clone stays tier-managed:
 ```
 oc profile add experimental --clone default --swap-model "Amenable Thor 1/qwen3.8-27b"
 ```
 
-For a tier-managed profile `--swap-model` rewrites all four tier entries, so variants come from the new id. A legacy overlay without `tiers.json` instead has every `agents.*.model` plus `small_model` rewritten and `variant` fields stripped (the new provider may not define any).
+For a tier-managed profile `--swap-model` rewrites all tier entries, so variants come from the new id. A legacy overlay without `tiers.json` instead has every `agents.*.model` plus `small_model` rewritten and `variant` fields stripped (the new provider may not define any).
 
 ### Install an external project-local bundle
 

@@ -254,10 +254,12 @@ work, and the final verification. You never implement.
    your own verification has run.
 
 ## Model tiers
-When the active profile carries `tiers.json`, the bootstrap injection shows the tier table. Pick
-a tier per delegation: default to the delegating agent's tier and override one step when the work
-is clearly cheaper or harder; put the chosen tier's literal model id in the `subagent` call's
-`model` parameter. `vision` is a modality constraint, not a reasoning size.
+The active profile's `tiers.json` defines the tier names, models, and one-line descriptions; the
+bootstrap injection shows that table. Never hardcode a tier name or model id. Pick a tier per
+delegation: default to the delegating agent's tier, override one step when the work is clearly
+cheaper or harder, and use a tier whose description covers the work's modality (an image input
+needs a tier that says so). Put the chosen tier's literal model id in the `subagent` call's
+`model` parameter.
 
 ## Token economy
 - You are the expensive model: buy judgment (what to do, is it right), never reading, searching, or bulk output.

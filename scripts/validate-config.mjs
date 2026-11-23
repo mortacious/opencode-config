@@ -19,7 +19,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  TIER_KEYS,
   buildExpansion,
   diffOverlay,
   listTierProfiles,
@@ -70,16 +69,11 @@ const PLAN_LOG_LIMIT = 10240;
 const SKILL_DESCRIPTION_LIMIT = 1024;
 const AGENT_FRONTMATTER_KEYS = new Set(['description', 'mode', 'permissions']);
 
-// Agents allowed to carry an unconditional {"action":"shell","resource":"*"}
-// allow rule. Every other agent file must be deny-by-default or enumerate
-// explicit read-only allows. orchestrator replaces the old build primary;
-// analyst is a read-only generalist with a deny-by-default shell, so it is
-// absent here and its own rules are checked like any other subagent's.
-const BLANKET_SHELL_AGENTS = new Set(['orchestrator', 'sidekick']);
-
-// A `{ "disabled": true }` entry removes a built-in agent from the config
-// (build/plan are disabled in favor of orchestrator) and carries no
-// model pin, so the pin checks skip it.
+// A `{ "disabled": true }` entry removes a built-in agent from the config and
+// carries no model pin, so the pin checks skip it. Opencode's own builtin ids
+// (title, general, compaction, summary, plus the disabled build/plan primaries)
+// are not roster data this repo authors, so they are the one permitted
+// exception to the no-agent-name-literal rule enforced by the committer check.
 function isDisabledPin(entry) {
   return Boolean(
     entry &&
@@ -878,7 +872,8 @@ check('every fusion-* reference in agent/skill bodies resolves to a skill or loc
     targets.push(...listFiles(skillsDir, true).filter((file) => file.endsWith('.md')));
   }
   // The fusion- prefix is shared by skills and by the local plugin packages
-  // (sidekick.md names the fusion-channel plugin), so both locations count.
+  // (agent and skill bodies name the fusion-channel plugin), so both
+  // locations count.
   const REF_RE = /(?<![A-Za-z0-9_-])fusion-[a-z0-9][a-z0-9-]*/g;
   const resolvedNames = new Set();
   const bad = [];
@@ -936,32 +931,6 @@ check('MCP tool permission actions resolve to a configured MCP server', () => {
   return summarize(bad, `${checked} tool actions resolve to ${servers.size} MCP servers`);
 });
 
-check('blanket shell allow (*) is limited to orchestrator, sidekick', () => {
-  const bad = [];
-  let seen = 0;
-  const holders = new Set();
-  for (const file of agentMarkdownFiles()) {
-    const name = path.basename(file, '.md');
-    const fm = agentFrontmatter(file);
-    if (!fm || !Array.isArray(fm.permissions)) continue;
-    for (const rule of fm.permissions) {
-      if (!rule || rule.action !== 'shell' || rule.resource !== '*') continue;
-      if (rule.effect !== 'allow') continue;
-      seen += 1;
-      if (BLANKET_SHELL_AGENTS.has(name)) {
-        holders.add(name);
-      } else {
-        bad.push(`agents/${name}.md: blanket shell allow ("shell" "*")`);
-      }
-    }
-  }
-  if (bad.length === 0) {
-    const names = holders.size === 0 ? 'none' : [...holders].sort().join(', ');
-    return { ok: true, reason: `${seen} blanket shell allows (${names})` };
-  }
-  return summarize(bad);
-});
-
 // Shell permission matching for the last-match simulation. opencode evaluates
 // permissions findLast: the last rule whose resource pattern matches decides.
 // `*` matches any run of characters, including none. Samples below drive the
@@ -985,80 +954,76 @@ function shellDecision(shellRules, command) {
   return decision;
 }
 
-// Every guard rule the sidekick surface must carry. The samples below prove the
-// net effect; this list proves no guard was dropped because a sibling pattern
-// happened to cover the same command.
-const SIDEKICK_GIT_GUARDS = [
-  'git push --force*',
-  'git push -f*',
-  'git push --mirror*',
-  'git push --delete*',
-  'git push* --force*',
-  'git push* -f*',
-  'git push* --mirror*',
-  'git push* --delete*',
-  'git push* +*',
-  'git push* :*',
-  'git push* -uf*',
-  'git push* -fu*',
-  'git push* --no-verify*',
-  'git commit* --amend*',
-  'git commit* --no-verify*',
-  'git -C* add*',
-  'git -C* commit*',
-  'git -C* push*',
-  'git -c* commit*',
-  'git -c* push*',
-  'git --git-dir*',
-  'git worktree add*',
-  'git worktree remove*',
-  'git worktree prune*',
-  'sh -c* git*',
-  'sh -c*git*',
-  'bash -c* git*',
-  'bash -c*git*',
-];
+// Capability discovery, not a roster: agent name, mode, and shell rules all
+// come from agents/*.md. An agent with no shell rules carries no git surface
+// to guard (it inherits the profile default, already deny/ask).
+function agentShellSurfaces() {
+  return agentMarkdownFiles().map((file) => {
+    const name = path.basename(file, '.md');
+    const fm = agentFrontmatter(file);
+    const rules = fm && Array.isArray(fm.permissions) ? fm.permissions : [];
+    const shellRules = rules.filter(
+      (rule) => rule && typeof rule === 'object' && rule.action === 'shell',
+    );
+    return {
+      name,
+      mode: fm && fm.values ? fm.values.mode : undefined,
+      shellRules,
+      blanketAllow: shellRules.some(
+        (rule) => rule.resource === '*' && rule.effect === 'allow',
+      ),
+    };
+  });
+}
 
-// sidekick carries the guarded git write surface (fusion-commit executes there),
-// so staging, commit, and push must allow while every dangerous form denies.
-const SIDEKICK_GIT_SAMPLES = [
-  { command: 'git add src/app.js', effect: 'allow' },
+// The committer is whichever agent's own findLast order allows both a commit
+// and a push. Renaming or replacing that file needs no edit here; zero or two
+// matches fail the committer check below.
+const COMMIT_SAMPLE = 'git commit -m x';
+const PUSH_SAMPLE = 'git push origin main';
+
+function isCommitter(surface) {
+  return (
+    shellDecision(surface.shellRules, COMMIT_SAMPLE) === 'allow' &&
+    shellDecision(surface.shellRules, PUSH_SAMPLE) === 'allow'
+  );
+}
+
+// The contract for the committer role, proven through the discovered agent's
+// own patterns: the safe forms allow, every escape hatch denies. This is a
+// sample set, not a spelling whitelist, so an equally safe rule set passes.
+const COMMITTER_GIT_SAMPLES = [
   { command: 'git commit -m x', effect: 'allow' },
   { command: 'git push origin main', effect: 'allow' },
-  { command: 'git status --short', effect: 'allow' },
   { command: 'git push --force origin main', effect: 'deny' },
   { command: 'git push -f origin main', effect: 'deny' },
-  { command: 'git push origin +main', effect: 'deny' },
-  { command: 'git push origin :b', effect: 'deny' },
   { command: 'git push --mirror origin', effect: 'deny' },
   { command: 'git push --delete origin b', effect: 'deny' },
+  { command: 'git push origin +main', effect: 'deny' },
+  { command: 'git push origin :b', effect: 'deny' },
+  { command: 'git push -uf origin main', effect: 'deny' },
+  { command: 'git push -fu origin main', effect: 'deny' },
+  { command: 'git push --no-verify origin main', effect: 'deny' },
   { command: 'git commit --amend -m x', effect: 'deny' },
   { command: 'git commit --no-verify -m x', effect: 'deny' },
   { command: 'git -C . commit -m x', effect: 'deny' },
+  { command: 'git -C . push origin main', effect: 'deny' },
   { command: 'git -c user.name=x commit -m x', effect: 'deny' },
+  { command: 'git -c user.name=x push origin main', effect: 'deny' },
+  { command: 'git --git-dir=.git commit -m x', effect: 'deny' },
+  { command: 'git --git-dir=.git push origin main', effect: 'deny' },
   { command: 'sh -c "git push"', effect: 'deny' },
-  // Worktree creation/removal is orchestrator-only; sidekick lists but never
-  // creates or prunes. Branch integration is the one explicitly-named merge.
-  { command: 'git worktree list', effect: 'allow' },
+  { command: 'bash -c "git push"', effect: 'deny' },
+  // Worktree create/remove/prune belongs to a primary; the committer never
+  // creates, removes, or prunes one.
   { command: 'git worktree add ../wt', effect: 'deny' },
   { command: 'git worktree remove ../wt', effect: 'deny' },
   { command: 'git worktree prune', effect: 'deny' },
-  { command: 'git merge --no-ff feature', effect: 'allow' },
-  { command: 'git merge feature', effect: 'deny' },
 ];
 
-// The orchestrator is the only agent allowed to create, remove, or prune
-// worktrees; these allows must survive its git write denies (findLast).
-const ORCHESTRATOR_WORKTREE_SAMPLES = [
-  { command: 'git worktree list', effect: 'allow' },
-  { command: 'git worktree add ../wt', effect: 'allow' },
-  { command: 'git worktree remove ../wt', effect: 'allow' },
-  { command: 'git worktree prune', effect: 'allow' },
-];
-
-// The orchestrator decides when and what to commit, never executes: every git
-// write verb must resolve to deny under its own findLast order.
-const ORCHESTRATOR_GIT_DENY_SAMPLES = [
+// A primary decides when and what to commit, never executes: every git write
+// verb must resolve to deny under its own findLast order.
+const PRIMARY_GIT_DENY_SAMPLES = [
   'git add -A',
   'git commit -m x',
   'git push origin main',
@@ -1067,67 +1032,132 @@ const ORCHESTRATOR_GIT_DENY_SAMPLES = [
   'git revert abc123',
 ];
 
-check('git write surface: sidekick guarded, orchestrator and other blanket shells deny', () => {
+// Worktree create/remove/prune is primary-only. Every non-primary agent that
+// carries shell rules must deny it.
+const WORKTREE_WRITE_SAMPLES = [
+  'git worktree add ../wt',
+  'git worktree remove ../wt',
+  'git worktree prune',
+];
+
+// This script's own source, scanned for agent-name literals: capabilities and
+// data files decide behavior, so a roster name in code is a bug. Opencode's
+// builtin ids are the allowed exception (BUILTIN_AGENTS); they cannot appear
+// here because surfaces come from agents/*.md, but the skip is explicit.
+const SCRIPT_TEXT = readText(path.join(HERE, 'validate-config.mjs'));
+
+function hardcodedAgentName(surface) {
+  if (BUILTIN_AGENTS.has(surface.name)) return false;
+  const escaped = surface.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![A-Za-z0-9_.-])${escaped}(?![A-Za-z0-9_.-])`).test(SCRIPT_TEXT);
+}
+
+check('one committer is discovered by capability; every other agent denies git writes', () => {
   const bad = [];
-  const holders = [];
-  for (const file of agentMarkdownFiles()) {
-    const name = path.basename(file, '.md');
-    const fm = agentFrontmatter(file);
-    if (!fm || !Array.isArray(fm.permissions)) continue;
-    const shellRules = fm.permissions.filter((rule) => rule && rule.action === 'shell');
-    const blanket = shellRules.some(
-      (rule) => rule.resource === '*' && rule.effect === 'allow',
+  const surfaces = agentShellSurfaces();
+  const committers = surfaces.filter(isCommitter).map((surface) => surface.name);
+  let committer = null;
+  if (committers.length === 1) {
+    committer = committers[0];
+  } else {
+    const list = committers.length === 0 ? 'none' : committers.sort().join(', ');
+    bad.push(
+      `${committers.length} agents allow both "${COMMIT_SAMPLE}" and "${PUSH_SAMPLE}" (${list}); expected exactly one committer`,
     );
-    if (!blanket) continue;
-    holders.push(name);
-    if (name === 'sidekick') {
-      for (const guard of SIDEKICK_GIT_GUARDS) {
-        const present = shellRules.some(
-          (rule) => rule.effect === 'deny' && rule.resource === guard,
+  }
+
+  for (const surface of surfaces) {
+    if (surface.name === committer) continue;
+    for (const command of [COMMIT_SAMPLE, PUSH_SAMPLE]) {
+      const actual = shellDecision(surface.shellRules, command);
+      if (actual === 'allow') {
+        bad.push(
+          `agents/${surface.name}.md: "${command}" resolves allow; only the committer may` +
+            (committer ? ` (committer: ${committer})` : ''),
         );
-        if (!present) {
-          bad.push(`agents/${name}.md: missing guarded git write deny "${guard}"`);
-        }
       }
-      for (const { command, effect } of SIDEKICK_GIT_SAMPLES) {
-        const actual = shellDecision(shellRules, command);
-        if (actual !== effect) {
+    }
+  }
+
+  for (const surface of surfaces) {
+    if (surface.mode === 'primary') {
+      for (const command of PRIMARY_GIT_DENY_SAMPLES) {
+        const actual = shellDecision(surface.shellRules, command);
+        if (actual !== 'deny') {
           bad.push(
-            `agents/${name}.md: "${command}" resolves ${actual ?? 'unmatched'}, expected ${effect}`,
+            `agents/${surface.name}.md: primary "${command}" resolves ${actual ?? 'unmatched'}, expected deny`,
           );
         }
       }
       continue;
     }
-    const samples =
-      name === 'orchestrator'
-        ? ORCHESTRATOR_GIT_DENY_SAMPLES
-        : ['git commit -m x', 'git push origin main'];
-    for (const command of samples) {
-      const actual = shellDecision(shellRules, command);
+    if (surface.shellRules.length === 0) continue;
+    for (const command of WORKTREE_WRITE_SAMPLES) {
+      const actual = shellDecision(surface.shellRules, command);
       if (actual !== 'deny') {
-        bad.push(`agents/${name}.md: "${command}" resolves ${actual ?? 'unmatched'}, expected deny`);
-      }
-    }
-    if (name === 'orchestrator') {
-      for (const { command, effect } of ORCHESTRATOR_WORKTREE_SAMPLES) {
-        const actual = shellDecision(shellRules, command);
-        if (actual !== effect) {
-          bad.push(
-            `agents/${name}.md: "${command}" resolves ${actual ?? 'unmatched'}, expected ${effect}`,
-          );
-        }
+        bad.push(
+          `agents/${surface.name}.md: non-primary "${command}" resolves ${actual ?? 'unmatched'}, expected deny`,
+        );
       }
     }
   }
+
+  // A blanket shell allow is a wide surface. Unless the agent is the
+  // discovered committer it must explicitly deny commit and push; this is a
+  // capability rule, not a name whitelist.
+  for (const surface of surfaces) {
+    if (!surface.blanketAllow || surface.name === committer) continue;
+    for (const command of [COMMIT_SAMPLE, PUSH_SAMPLE]) {
+      const actual = shellDecision(surface.shellRules, command);
+      if (actual !== 'deny') {
+        bad.push(
+          `agents/${surface.name}.md: blanket shell allow requires "${command}" to deny (resolves ${actual ?? 'unmatched'})`,
+        );
+      }
+    }
+  }
+
+  for (const surface of surfaces) {
+    if (hardcodedAgentName(surface)) {
+      bad.push(
+        `validate-config.mjs: hardcodes agent name "${surface.name}"; discover agents from agents/*.md instead`,
+      );
+    }
+  }
+
   if (bad.length === 0) {
-    const list = holders.length === 0 ? 'none' : holders.sort().join(', ');
     return {
       ok: true,
-      reason: `${holders.length} blanket shell agents: sidekick git samples pass, write verbs deny (${list})`,
+      reason: `committer "${committer}" discovered; ${surfaces.length} agent surfaces deny git writes outside it`,
     };
   }
   return summarize(bad);
+});
+
+check('the discovered committer: commit/push allow, force/amend/worktree escapes deny', () => {
+  const surfaces = agentShellSurfaces();
+  const committers = surfaces.filter(isCommitter).map((surface) => surface.name);
+  if (committers.length !== 1) {
+    const list = committers.length === 0 ? 'none' : committers.sort().join(', ');
+    return {
+      ok: false,
+      reason: `${committers.length} committers (${list}); the committer samples need exactly one`,
+    };
+  }
+  const committer = surfaces.find((surface) => surface.name === committers[0]);
+  const bad = [];
+  for (const { command, effect } of COMMITTER_GIT_SAMPLES) {
+    const actual = shellDecision(committer.shellRules, command);
+    if (actual !== effect) {
+      bad.push(
+        `agents/${committer.name}.md: "${command}" resolves ${actual ?? 'unmatched'}, expected ${effect}`,
+      );
+    }
+  }
+  return summarize(
+    bad,
+    `committer "${committer.name}" passes ${COMMITTER_GIT_SAMPLES.length} git samples`,
+  );
 });
 
 check('profile tiers.json validates, providers/variants resolve, and overlays match', () => {
@@ -1153,8 +1183,8 @@ check('profile tiers.json validates, providers/variants resolve, and overlays ma
       for (const error of shapeErrors) bad.push(`${rel(tiersFile)}: ${error}`);
       continue;
     }
-    for (const tier of TIER_KEYS) {
-      const parsed = parseModelRef(data.tiers[tier]);
+    for (const tier of Object.keys(data.tiers)) {
+      const parsed = parseModelRef(data.tiers[tier].model);
       if (!parsed) continue; // shape validation already reported it
       if (!providers.has(parsed.provider)) {
         bad.push(

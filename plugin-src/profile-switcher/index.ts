@@ -123,10 +123,6 @@ const REEVAL_DEBOUNCE_MS = 2000;
 // block in setup()).
 const SETTLE_DELAY_MS = 4000;
 
-// Fixed display/report order of the four authored model tiers in
-// profiles/<name>/tiers.json.
-const TIER_ORDER: readonly string[] = ["big", "medium", "small", "vision"];
-
 // Last directory successfully created for LOG_FILE (lazy mkdir, mirrors
 // lumo-supervisor's logDirReady).
 let logDirReady = false;
@@ -810,12 +806,13 @@ export default Plugin.define({
     }
 
     // Tier summary for the sidebar: the ACTIVE profile's authored
-    // profiles/<name>/tiers.json ({"tiers":{big,medium,small,vision},...}).
-    // Fail-soft, never throws: a missing, unreadable, malformed, or partially
-    // invalid file returns undefined, which is the bare-profile fallback (the
-    // sidebar then renders the per-agent rows). Returns exactly four entries in
-    // fixed order big, medium, small, vision. Read locally rather than
-    // imported from another plugin (fusion-bootstrap has its own reader).
+    // profiles/<name>/tiers.json (v2 object form: tier name -> {model,
+    // description}). Tier names and their display order are profile data, so
+    // the file's own key order is preserved. Fail-soft, never throws: a
+    // missing, unreadable, malformed, or partially invalid file returns
+    // undefined, which is the bare-profile fallback (the sidebar then renders
+    // the per-agent rows). Read locally rather than imported from another
+    // plugin (fusion-bootstrap has its own reader).
     function currentTiers(): ProfileTierModelEntry[] | undefined {
       try {
         const rawText = readFileSync(
@@ -827,16 +824,29 @@ export default Plugin.define({
         if (!tiers || typeof tiers !== "object" || Array.isArray(tiers)) {
           return undefined;
         }
-        const table = tiers as Record<string, unknown>;
         const entries: ProfileTierModelEntry[] = [];
-        for (const tier of TIER_ORDER) {
-          const model = table[tier];
-          if (typeof model !== "string" || model.trim() === "") {
+        for (const [tier, value] of Object.entries(tiers)) {
+          if (!value || typeof value !== "object" || Array.isArray(value)) {
             return undefined;
           }
-          entries.push({ tier, model: model.trim() });
+          const entry = value as { model?: unknown; description?: unknown };
+          if (typeof entry.model !== "string" || entry.model.trim() === "") {
+            return undefined;
+          }
+          if (
+            typeof entry.description !== "string" ||
+            entry.description.trim() === "" ||
+            /[\r\n]/.test(entry.description)
+          ) {
+            return undefined;
+          }
+          entries.push({
+            tier,
+            model: entry.model.trim(),
+            description: entry.description.trim(),
+          });
         }
-        return entries;
+        return entries.length > 0 ? entries : undefined;
       } catch {
         return undefined;
       }

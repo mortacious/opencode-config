@@ -135,8 +135,8 @@ export default Plugin.define({
 
     const [active, setActive] = createSignal("default");
     const [agents, setAgents] = createSignal<ProfileAgentModelEntry[]>([]);
-    // The active profile's four authored tier models, empty when the profile
-    // authors no readable tiers.json (the legacy per-agent fallback).
+    // The active profile's authored tier rows, empty when the profile authors
+    // no readable tiers.json (the legacy per-agent fallback).
     const [tiers, setTiers] = createSignal<ProfileTierModelEntry[]>([]);
 
     const rpc = context.client.rpc(Profile);
@@ -566,11 +566,11 @@ export default Plugin.define({
     }
 
     // Collapsible sidebar section: header "Profile: <active> (n)" with an
-    // arrow, and (when expanded) either the active profile's four tier models
-    // as muted "<tier>  <model>" rows (authored tiers.json), or - for a profile
-    // that authors no readable tier table - one muted "<agent>  <model>" row
-    // per agent (legacy fallback). Storage key "sidebar", default collapsed,
-    // durable. With no known agents it degrades to the original static
+    // arrow, and (when expanded) either the active profile's authored tiers as
+    // muted "<tier>  <model>" rows (tiers.json), or - for a profile that authors
+    // no readable tier table - one muted "<agent>  <model>" row per agent
+    // (legacy fallback). Storage key "sidebar", default collapsed, durable.
+    // With no known agents it degrades to the original static
     // "Profile: <active>" line.
     function ProfileSection() {
       const [view, updateView] = context.storage.store("sidebar", {
@@ -587,15 +587,14 @@ export default Plugin.define({
         const measured = rootBox?.width;
         if (typeof measured === "number" && measured > 0) setWidth(measured);
       });
-      // Two-stage row truncation: the model part is capped first so the
-      // tier/agent label always stays visible, then the whole row is cut to the
-      // measured width (one stage alone could hide either end).
-      function row(label: string, model: string): string {
-        const max = usableWidth(width());
-        const modelMax = Math.max(10, max - label.length - 4);
-        return truncate(
-          "  " + label + "  " + truncate(model, modelMax),
-          max
+      // Each tier/agent row is a 2-column bullet plus a bold label plus the
+      // muted model, indented by one 2-column gap after the bullet. The model
+      // is truncated to the columns left over, so the label always stays
+      // visible and the row never exceeds the measured width.
+      function modelWidth(label: string): number {
+        return Math.max(
+          0,
+          usableWidth(width()) - 2 - label.length - 2
         );
       }
       return (
@@ -653,18 +652,60 @@ export default Plugin.define({
                 fallback={
                   <For each={agents()}>
                     {(entry) => (
-                      <text fg={context.theme.text.muted} wrapMode="none" truncate>
-                        {row(entry.agent, entry.model)}
-                      </text>
+                      <box flexDirection="row">
+                        <text
+                          fg={context.theme.text.muted}
+                          wrapMode="none"
+                          truncate
+                        >
+                          {"- "}
+                        </text>
+                        <text
+                          fg={context.theme.text.base}
+                          wrapMode="none"
+                          truncate
+                        >
+                          <b>{entry.agent}</b>
+                        </text>
+                        <text
+                          fg={context.theme.text.muted}
+                          wrapMode="none"
+                          truncate
+                        >
+                          {"  " +
+                            truncate(entry.model, modelWidth(entry.agent))}
+                        </text>
+                      </box>
                     )}
                   </For>
                 }
               >
                 <For each={tiers()}>
                   {(entry) => (
-                    <text fg={context.theme.text.muted} wrapMode="none" truncate>
-                      {row(entry.tier, entry.model)}
-                    </text>
+                    <box flexDirection="row">
+                      <text
+                        fg={context.theme.text.muted}
+                        wrapMode="none"
+                        truncate
+                      >
+                        {"- "}
+                      </text>
+                      <text
+                        fg={context.theme.text.base}
+                        wrapMode="none"
+                        truncate
+                      >
+                        <b>{entry.tier}</b>
+                      </text>
+                      <text
+                        fg={context.theme.text.muted}
+                        wrapMode="none"
+                        truncate
+                      >
+                        {"  " +
+                          truncate(entry.model, modelWidth(entry.tier))}
+                      </text>
+                    </box>
                   )}
                 </For>
               </Show>

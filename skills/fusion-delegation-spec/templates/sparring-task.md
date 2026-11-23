@@ -40,9 +40,9 @@ _Red-team <design / approach / claim> to decide whether it ships as stated._
 
 ## Model tier
 
-<!-- REQUIRED: one of big | medium | small | vision. Red-team default is medium; use big for architecture or novel-approach calls. Name the overriding tier's model id from the injected Model tiers table. -->
+<!-- REQUIRED: one of the tier names from the injected tier table (default: this agent's tier). Name a tier only from that table. -->
 
-- Tier: big | medium | small | vision
+- Tier: one of the tier names from the injected tier table (default: this agent's tier)
 - Model override: `<provider>/<model>` from the injected table, or "none - default"
 
 ## Report contract

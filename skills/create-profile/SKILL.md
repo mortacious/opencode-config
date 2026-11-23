@@ -5,7 +5,7 @@ description: Use ONLY when editing or creating opencode profiles under profiles/
 
 # Create / fork / delete / rename opencode profiles
 
-Profiles live under `~/.config/opencode/profiles/<name>/`. The authored source of each profile is `tiers.json`: `tiers` maps the four model tiers (`big`, `medium`, `small`, `vision`) to literal model ids, and `agents` maps every agent to its default tier. `scripts/tiers-sync.mjs` expands that mapping into the GENERATED `opencode.jsonc` overlay, which opencode deep-merges on top of the base `opencode.jsonc` when started under `OPENCODE_CONFIG=.../profiles/<name>/opencode.jsonc` (the `oc` wrapper sets this and re-syncs the overlay first). All profile management goes through the `oc` wrapper at `bin/oc`; never hand-edit a generated overlay.
+Profiles live under `~/.config/opencode/profiles/<name>/`. The authored source of each profile is `tiers.json`: `tiers` maps each tier name to an entry with a literal `model` id and a one-line `description` (tier names are arbitrary - the shipped profile uses `big`, `medium`, `small`, `vision`), and `agents` maps every agent to its default tier. `scripts/tiers-sync.mjs` expands that mapping into the GENERATED `opencode.jsonc` overlay, which opencode deep-merges on top of the base `opencode.jsonc` when started under `OPENCODE_CONFIG=.../profiles/<name>/opencode.jsonc` (the `oc` wrapper sets this and re-syncs the overlay first). All profile management goes through the `oc` wrapper at `bin/oc`; never hand-edit a generated overlay.
 
 ## Subcommand reference
 
@@ -15,7 +15,7 @@ Profiles live under `~/.config/opencode/profiles/<name>/`. The authored source o
 - `oc profile add <name> [--clone <src>] [--swap-model "<provider>/<model>"]` - create a new profile.
   - With no flags: a bare overlay (just `$schema`). It has no `tiers.json`, so the base `opencode.jsonc` pins apply until you author one.
   - With `--clone <src>`: copies the source overlay, copies `profiles/<src>/tiers.json` when the source is tier-managed, and re-syncs the clone so it stays tier-managed.
-  - With `--swap-model "<provider>/<model>"`: on a tier-managed profile, rewrites all four tier entries to the given id (so variants come from the new id) and regenerates the overlay; on a legacy overlay without `tiers.json`, rewrites every `agents.*.model` and `small_model` and strips `variant` fields. jq-based; full-line `//` comments are stripped first so JSONC sources parse.
+  - With `--swap-model "<provider>/<model>"`: on a tier-managed profile, rewrites every tier entry to the given id (so variants come from the new id) and regenerates the overlay; on a legacy overlay without `tiers.json`, rewrites every `agents.*.model` and `small_model` and strips `variant` fields. jq-based; full-line `//` comments are stripped first so JSONC sources parse.
   - `--clone` and `--swap-model` compose: fork + swap.
 - `oc profile delete <name>` - remove a profile (refuses `default`; scrubs every `.active-profile` record, global or per-directory, that named the deleted profile).
 - `oc profile rename <old> <new>` - rename a profile (refuses `default`; refuses to clobber an existing name; rewrites every `.active-profile` record that named the old name).
@@ -23,8 +23,8 @@ Profiles live under `~/.config/opencode/profiles/<name>/`. The authored source o
 
 ## Workflow
 
-1. Creating a profile means choosing four tier models and each agent's default tier, so start by deciding the mapping:
-   - "A profile like X but on model Y" -> fork + swap all four tiers, then differentiate if needed: `oc profile add <new> --clone <src> --swap-model "<provider>/<model>"`. Edit the new `tiers.json` afterwards if the vision tier needs a vision-capable id or an agent should move a size.
+1. Creating a profile means choosing a model for every tier entry and each agent's default tier, so start by deciding the mapping:
+   - "A profile like X but on model Y" -> fork + swap all tier entries, then differentiate if needed: `oc profile add <new> --clone <src> --swap-model "<provider>/<model>"`. Edit the new `tiers.json` afterwards if the vision tier needs a vision-capable id or an agent should move a size.
    - "A new tier profile from scratch" -> `oc profile add <new>` (bare overlay), write `profiles/<new>/tiers.json`, then run `node scripts/tiers-sync.mjs --profile <new>` (or just launch with `oc <new>`, which syncs first).
    - "A bare profile on base pins" -> `oc profile add <new>` and stop; leave `tiers.json` absent.
 2. Tier values are literal `<provider>/<model-key>[#variant]`, where `<model-key>` is the key registered in the `provider.<name>.models` map of `opencode.jsonc`, NOT the display name. Every `agents` key needs an `agents/<name>.md` file except the built-in `title`. Validate with `node scripts/tiers-sync.mjs --check --all` and `node scripts/validate-config.mjs`.

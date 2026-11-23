@@ -8,16 +8,18 @@
 // mutable SessionContext, and pushing onto input.system adds an instruction
 // without writing a transcript message, so nothing accumulates):
 //
-// - Primary sessions (orchestrator): check the skill catalog before acting;
-//   delegations load the fusion-delegation-spec skill and fill a dispatch
-//   template from its templates/ directory instead of a freehand task spec.
-//   When the ACTIVE profile carries profiles/<name>/tiers.json, a compact
-//   model-tier table is appended to the same part so the primary can pick a
-//   tier and pass its literal model id on the subagent call.
+// - Primary sessions (any agent whose resolved info reports mode "primary"):
+//   check the skill catalog before acting; delegations load the
+//   fusion-delegation-spec skill and fill a dispatch template from its
+//   templates/ directory instead of a freehand task spec. When the ACTIVE
+//   profile carries profiles/<name>/tiers.json, a compact model-tier table is
+//   appended to the same part so the primary can pick a tier and pass its
+//   literal model id on the subagent call. No roster list lives here: the mode
+//   comes from agent info, so a new agents/<name>.md is picked up as-is.
 // - Child sessions (any session with a structural parentID): the task prompt
 //   is the full specification, load the skills it names, and the report MUST
-//   begin with the "SKILLS:" line so a skipped load is visible. analyst
-//   runs here: it is the read-only generalist the orchestrator dispatches.
+//   begin with the "SKILLS:" line so a skipped load is visible. Every
+//   delegated specialist runs here, whatever its name.
 // - Every session (primary and child): a compact permission brief built from
 //   the session agent's own permissions array (ctx.agent.get), because opencode
 //   never tells an agent which rules it carries. FindLast rules are summarized
@@ -42,16 +44,12 @@ import { fileURLToPath } from "node:url";
 
 import { Plugin } from "@opencode/plugin";
 
-const PRIMARY_AGENTS = new Set(["orchestrator"]);
-
 const MARKER = "fusion-bootstrap";
 
 // index.js lives at <config>/plugin-src/fusion-bootstrap/index.js, so two
 // levels up is the config dir bin/oc launches from (the same CONFIG_DIR that
 // subagent-cap derives from its lib/ directory).
 const CONFIG_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-
-const TIER_KEYS = ["big", "medium", "small", "vision"];
 
 const PRIMARY_REMINDER = [
   "Fusion bootstrap:",
@@ -124,8 +122,9 @@ export function resolveActiveProfile(env = process.env, configDir = CONFIG_DIR) 
   return detectLaunchedProfile(env) || readGlobalProfile(configDir) || "default";
 }
 
-// Reads profiles/<name>/tiers.json fresh. Returns a normalized table, or null
-// on any miss (absent file, bad JSON, unexpected shape) - never throws.
+// Reads profiles/<name>/tiers.json fresh. Returns ordered rows
+// [{name, model, description}] plus the agent->tier mapping, or null on any
+// miss (absent file, bad JSON, unexpected shape) - never throws.
 export function loadTierTable(configDir, profile) {
   if (!isSafeProfileName(profile)) return null;
   let data;
@@ -140,31 +139,40 @@ export function loadTierTable(configDir, profile) {
   const agents = data && typeof data === "object" ? data.agents : null;
   if (!tiers || typeof tiers !== "object" || Array.isArray(tiers)) return null;
   if (!agents || typeof agents !== "object" || Array.isArray(agents)) return null;
-  const models = {};
-  for (const key of TIER_KEYS) {
-    const ref = tiers[key];
-    if (typeof ref !== "string" || ref.trim() === "") return null;
-    models[key] = ref.trim();
+  const entries = [];
+  const known = new Set();
+  for (const name of Object.keys(tiers)) {
+    const entry = tiers[name];
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+    const model = typeof entry.model === "string" ? entry.model.trim() : "";
+    const description =
+      typeof entry.description === "string" ? entry.description.trim() : "";
+    if (model === "" || description === "") return null;
+    if (/[\r\n]/.test(entry.description)) return null;
+    entries.push({ name, model, description });
+    known.add(name);
   }
+  if (entries.length === 0) return null;
   const mapping = {};
   for (const name of Object.keys(agents)) {
     const tier = agents[name];
-    if (typeof tier !== "string" || !TIER_KEYS.includes(tier)) return null;
+    if (typeof tier !== "string" || !known.has(tier)) return null;
     mapping[name] = tier;
   }
   if (Object.keys(mapping).length === 0) return null;
-  return { profile, models, mapping };
+  return { profile, entries, mapping };
 }
 
-// Compact appended block: the four tier models, every agent's default tier,
-// and the delegation policy. Kept short because it rides every request.
+// Compact appended block: every authored tier with its model and description,
+// every agent's default tier, and the delegation policy. Kept short because it
+// rides every request.
 export function formatTierTable(table) {
   if (!table) return "";
   const lines = [
     'Model tiers (profile "' + table.profile + '", authored in profiles/' + table.profile + "/tiers.json):",
   ];
-  for (const key of TIER_KEYS) {
-    lines.push("- " + key + ": " + table.models[key]);
+  for (const entry of table.entries) {
+    lines.push("- " + entry.name + ": " + entry.model + " - " + entry.description);
   }
   const defaults = Object.keys(table.mapping)
     .sort()
@@ -172,9 +180,8 @@ export function formatTierTable(table) {
     .join(", ");
   lines.push("- Agent defaults: " + defaults);
   lines.push(
-    "Policy: choose a tier per delegation, default to the delegating agent's tier; " +
-      "downgrade only for clearly mechanical work; whole-branch final review uses big; " +
-      "vision tasks use the vision tier; to override, pass the tier's model id as the " +
+    "Policy: choose the tier whose description matches the work, default to the " +
+      "delegating agent's tier; to override, pass that tier's model id as the " +
       "subagent tool's model parameter.",
   );
   return lines.join("\n");
@@ -360,6 +367,27 @@ export function createContextHandler(options = {}) {
   // failed agent lookup is not cached, so the next request retries it.
   const briefs = new Map();
 
+  // Resolved agent modes: agent name -> mode string. Agent definitions are
+  // static, so a resolved mode is cached; a failed lookup is not cached.
+  const modes = new Map();
+
+  async function agentMode(agentID) {
+    if (!getAgent || typeof agentID !== "string" || !agentID) return null;
+    if (modes.has(agentID)) return modes.get(agentID);
+    let mode = null;
+    try {
+      const info = await getAgent({ agentID });
+      const agent = info && typeof info === "object" ? info.data || info : null;
+      if (agent && typeof agent.mode === "string") mode = agent.mode;
+    } catch {
+      mode = null;
+    }
+    if (mode === null) return null;
+    if (modes.size >= CACHE_LIMIT) modes.clear();
+    modes.set(agentID, mode);
+    return mode;
+  }
+
   async function permissionBrief(agentID) {
     if (!getAgent || typeof agentID !== "string" || !agentID) return "";
     if (briefs.has(agentID)) return briefs.get(agentID);
@@ -415,19 +443,22 @@ export function createContextHandler(options = {}) {
       const parent = await resolveParent(input.sessionID);
       if (!parent.known) return;
       if (parent.parentID) {
-        // Child session: this is a delegation, not an orchestrator.
+        // Child session: this is a delegation, not a primary.
         const brief = await permissionBrief(agent);
         inject(input, brief ? CHILD_REMINDER + "\n\n" + brief : CHILD_REMINDER);
         return;
       }
-      if (PRIMARY_AGENTS.has(agent)) {
-        const brief = await permissionBrief(agent);
-        const profile = resolveActiveProfile(env, configDir);
-        const tierTable = loadTierTable(configDir, profile);
-        let text = brief ? PRIMARY_REMINDER + "\n\n" + brief : PRIMARY_REMINDER;
-        if (tierTable) text += "\n\n" + formatTierTable(tierTable);
-        inject(input, text);
-      }
+      // Capability detection, not a roster: only an agent whose resolved info
+      // reports mode "primary" gets the primary nudge. Unavailable agent info
+      // (no getAgent option, failed or incomplete lookup) injects nothing for
+      // this request; the next request retries.
+      if ((await agentMode(agent)) !== "primary") return;
+      const brief = await permissionBrief(agent);
+      const profile = resolveActiveProfile(env, configDir);
+      const tierTable = loadTierTable(configDir, profile);
+      let text = brief ? PRIMARY_REMINDER + "\n\n" + brief : PRIMARY_REMINDER;
+      if (tierTable) text += "\n\n" + formatTierTable(tierTable);
+      inject(input, text);
     } catch {
       // A reminder must never fail the model request it decorates.
     }
@@ -449,7 +480,7 @@ export default Plugin.define({
 
     const registration = await ctx.session.hook("context", onContext);
     console.log(
-      "[fusion-bootstrap] context hook registered (primary: orchestrator with active-profile tiers; child: SKILLS contract; both: permission brief)",
+      "[fusion-bootstrap] context hook registered (primary: any agent whose mode is primary, with active-profile tiers; child: SKILLS contract; both: permission brief)",
     );
 
     return async () => {

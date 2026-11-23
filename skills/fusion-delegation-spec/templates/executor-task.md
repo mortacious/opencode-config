@@ -52,9 +52,9 @@ _Expected: <test count / exit code / output>._
 
 ## Model tier
 
-<!-- REQUIRED: one of big | medium | small | vision. State the agent's default tier (sidekick: medium) unless overriding. Override only for a clearly mechanical task (small), a hard-reasoning task (big), or image input (vision); then name that tier's model id from the injected Model tiers table. -->
+<!-- REQUIRED: one of the tier names from the injected tier table (default: this agent's tier). Name a tier only from that table. -->
 
-- Tier: big | medium | small | vision
+- Tier: one of the tier names from the injected tier table (default: this agent's tier)
 - Model override: `<provider>/<model>` from the injected table, or "none - default"
 
 ## Report contract

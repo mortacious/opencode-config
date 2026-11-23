@@ -57,9 +57,9 @@ _Record the verified <change> as one commit; no rework._
 
 ## Model tier
 
-<!-- REQUIRED: one of big | medium | small | vision. Mechanical execution, so default to small; override only if the spec needs judgment. -->
+<!-- REQUIRED: use the mechanical tier the profile defines if any, else the agent's default. Name a tier only from the injected tier table. -->
 
-- Tier: small
+- Tier: the mechanical tier from the injected tier table if the profile defines one, else this agent's default
 - Model override: `<provider>/<model>` from the injected table, or "none - default"
 
 ## Report contract

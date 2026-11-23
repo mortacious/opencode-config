@@ -27,6 +27,11 @@ stays with the orchestrator.
 - Primary `subagent` allowlist: `sidekick`, `analyst`, `reviewer`. The built-in `general`
   subagent is excluded - do not route to it.
 - Only the orchestrator creates or removes git worktrees; execution agents never do.
+- Code never hardcodes the composition: plugins, scripts, and commands discover agents from
+  `agents/*.md` (mode and permission arrays), tiers from `profiles/*/tiers.json`, and skills from
+  `skills/`. New agent files, tier entries, and skill directories are picked up automatically, and a
+  roster-name literal in code is a bug. Agent and skill names in this and other docs are
+  illustrative examples, not a registry.
 - Primaries steer a running child with the `steer` tool (target by session id or agent name);
   subagents report important mid-task discoveries to the orchestrator with the `report` tool
   (kind `note|question|blocker`) - the inbox plus live channel in `fusion-channel`.
@@ -39,17 +44,17 @@ stays with the orchestrator.
 - Frontmatter carries `description`, `mode`, and the V2 `permissions` array. `temperature`,
   `mcps:`, `skills:`, and `model:` are unsupported fields on opencode 2.2.6 and must not
   reappear.
-- Model tiers are the source of truth: each profile authors `profiles/<name>/tiers.json` with the
-  four tier models (`big`, `medium`, `small`, `vision`) and a default tier per agent.
-  `scripts/tiers-sync.mjs` GENERATES the profile's `agents.*.model` pins from it - those pins are
-  generated and must not be hand-edited. `bin/oc` re-syncs at launch and refuses to launch when
-  the sync fails (invalid `tiers.json`, unwritable overlay). A profile with no `tiers.json` falls
-  back to the base `opencode.jsonc` pins. Primaries choose a tier per delegation, default to the
-  delegating agent's tier, and may override one step; the chosen tier's literal model id goes in
-  the `subagent` call's `model` parameter. Agent default tiers are `orchestrator=big`,
-  `sidekick`/`analyst`/`reviewer` all `medium`, and `title=small`. `vision` is a
-  modality constraint (image input), not a reasoning size: a visual or visual-inspection task
-  runs on that tier. Agent frontmatter never carries a model.
+- Model tiers are profile data: each profile authors `profiles/<name>/tiers.json`, which defines
+  the tier names, their models, one-line descriptions, and a default tier per agent. A profile may
+  define different or additional tiers. `scripts/tiers-sync.mjs` GENERATES the profile's
+  `agents.*.model` pins from it - those pins are generated and must not be hand-edited. `bin/oc`
+  re-syncs at launch and refuses to launch when the sync fails (invalid `tiers.json`, unwritable
+  overlay). A profile with no `tiers.json` falls back to the base `opencode.jsonc` pins. The
+  orchestrator reads the tier table from the bootstrap injection, chooses a tier per delegation,
+  defaults to the delegating agent's tier, and may override one step; the chosen tier's literal
+  model id goes in the `subagent` call's `model` parameter. No skill or plugin may hardcode a tier
+  name: a modality requirement such as image input is whatever a tier's description says. Agent
+  frontmatter never carries a model.
 - Skills are advertised session-wide and filtered only by `skill` permission rules. An agent that
   needs a method loads it with the `skill` tool; restrict exposure with `skill` rules if needed.
 - Branch plan logs follow the `fusion-plan-log` skill: `.plans/<branch>.md`, live sections

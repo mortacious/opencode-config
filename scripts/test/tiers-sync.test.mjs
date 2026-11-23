@@ -9,7 +9,7 @@
 //      small_model) and idempotent re-sync
 //   2. --check exits 0 on a synced tree and 1 with named drifts after an edit
 //   3. invalid tiers.json is rejected (missing tier, bad ref, unknown agent)
-//   4. retargeting all four tiers re-pins every agent (the --swap-model tiers
+//   4. retargeting every tier re-pins every agent (the --swap-model tiers
 //      rewrite + resync; bin/oc performs the JSON edit itself with jq)
 //
 // Run: node --test scripts/test/
@@ -22,7 +22,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { GENERATED_HEADER, TIER_KEYS } from "../../scripts/tiers-sync.mjs";
+import { GENERATED_HEADER } from "../../scripts/tiers-sync.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "..", "..");
@@ -44,10 +44,10 @@ const AGENT_FILES = ["orchestrator", "sidekick", "analyst", "reviewer"];
 
 const TIERS = {
   tiers: {
-    big: "test-provider/big-model#max",
-    medium: "test-provider/medium-model",
-    small: "test-provider/small-model",
-    vision: "test-provider/vision-model",
+    big: { model: "test-provider/big-model#max", description: "hard reasoning" },
+    medium: { model: "test-provider/medium-model", description: "default work" },
+    small: { model: "test-provider/small-model", description: "mechanical edits" },
+    vision: { model: "test-provider/vision-model", description: "image inspection" },
   },
   agents: {
     orchestrator: "big",
@@ -143,20 +143,20 @@ test("--check passes when synced and fails with named drifts after an edit", () 
 test("invalid tiers.json is rejected with an actionable error", () => {
   const cases = [
     [
-      "missing tier",
+      "missing description",
       (data) => {
-        delete data.tiers.small;
+        delete data.tiers.small.description;
         return data;
       },
-      /missing tier "small"/,
+      /tier "small" description must be a non-empty string/,
     ],
     [
       "bad ref",
       (data) => {
-        data.tiers.vision = "no-slash";
+        data.tiers.vision.model = "no-slash";
         return data;
       },
-      /tier "vision" value "no-slash" is not <provider>\/<model>\[#variant\]/,
+      /tier "vision" model "no-slash" is not <provider>\/<model>\[#variant\]/,
     ],
     [
       "unknown agent",
@@ -172,7 +172,7 @@ test("invalid tiers.json is rejected with an actionable error", () => {
         data.agents.orchestrator = "huge";
         return data;
       },
-      /agents\.orchestrator must be one of big\|medium\|small\|vision/,
+      /agents\.orchestrator must name an existing tier \(got "huge"\)/,
     ],
   ];
   for (const [label, mutate, pattern] of cases) {
@@ -185,11 +185,13 @@ test("invalid tiers.json is rejected with an actionable error", () => {
   }
 });
 
-test("retargeting all four tiers re-pins every agent (swap-model tiers path)", () => {
+test("retargeting every tier re-pins every agent (swap-model tiers path)", () => {
   const root = makeRoot();
   assert.equal(run(root, ["--profile", "demo"]).status, 0);
   const data = structuredClone(TIERS);
-  for (const key of TIER_KEYS) data.tiers[key] = "next/provider-model#max";
+  for (const key of Object.keys(data.tiers)) {
+    data.tiers[key].model = "next/provider-model#max";
+  }
   writeTiers(root, "demo", data);
   const synced = run(root, ["--profile", "demo"]);
   assert.equal(synced.status, 0, synced.stderr);
@@ -198,4 +200,22 @@ test("retargeting all four tiers re-pins every agent (swap-model tiers path)", (
     assert.equal(config.agents[name].model, "next/provider-model#max", name);
   }
   assert.equal(config.small_model, "next/provider-model#max");
+});
+
+test("custom tier names are profile data: expansion uses the file's own names", () => {
+  const root = makeRoot();
+  const data = {
+    tiers: {
+      deep: { model: "test-provider/deep-model#max", description: "deep reasoning" },
+      quick: { model: "test-provider/quick-model", description: "quick edits" },
+    },
+    agents: { orchestrator: "deep", sidekick: "quick", title: "quick" },
+  };
+  writeTiers(root, "demo", data);
+  const result = run(root, ["--profile", "demo"]);
+  assert.equal(result.status, 0, result.stderr);
+  const { config } = readOverlay(root);
+  assert.equal(config.agents.orchestrator.model, "test-provider/deep-model#max");
+  assert.equal(config.agents.sidekick.model, "test-provider/quick-model");
+  assert.equal(config.small_model, "test-provider/quick-model");
 });

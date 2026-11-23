@@ -12,6 +12,14 @@ SECRETS_DIR="$CONFIG_DIR/secrets"
 
 echo "=== opencode config bootstrap ==="
 
+# --- opencode version gate ---
+# The context plugin pinned in opencode.jsonc (opencode-dcp@2.0.5) targets the
+# opencode 2.3 API line, so anything older is unsupported. Abort before any
+# install work. Escape hatch (unsupported): SKIP_OPENCODE_VERSION_CHECK=1.
+if [ "${SKIP_OPENCODE_VERSION_CHECK:-0}" != "1" ]; then
+  "$CONFIG_DIR/scripts/check-opencode-version.sh" --quiet
+fi
+
 # --- codegraph (MCP server dependency) ---
 # The codegraph binary must be on PATH for the codegraph MCP server to work.
 # This script does NOT install it - install it yourself via your package manager

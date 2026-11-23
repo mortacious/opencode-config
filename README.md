@@ -2,9 +2,16 @@
 
 Personal opencode configuration. Managed as a public git repo for deployment across machines.
 
+## Requirements
+
+- opencode >= 2.3.0 (tested on 2.3.2). The pinned context plugin `opencode-dcp@2.0.5`
+  targets the 2.3 API line; `install.sh` aborts early on older versions
+  (`SKIP_OPENCODE_VERSION_CHECK=1` bypasses the check, unsupported).
+- Node.js >= 22 with npm - for `scripts/` and the plugin packages.
+
 ## Deploy to a new machine
 
-1. Install opencode itself (out of scope for this repo).
+1. Install opencode itself (>= 2.3.0; out of scope for this repo).
 2. Install Node.js + npm if not present (on Arch: `sudo pacman -S nodejs npm`).
 3. Clone this repo directly into your opencode config directory:
    ```

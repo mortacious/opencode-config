@@ -8,6 +8,10 @@ Personal opencode configuration. Managed as a public git repo for deployment acr
   targets the 2.3 API line; `install.sh` aborts early on older versions
   (`SKIP_OPENCODE_VERSION_CHECK=1` bypasses the check, unsupported).
 - Node.js >= 22 with npm - for `scripts/` and the plugin packages.
+- GitHub CLI (`gh`) - recommended, not required. PR workflows and the optional `GH_SKILLS`
+  harness-skill hook use it; both need `gh auth login` first. `install.sh` reuses an existing
+  `gh`, otherwise installs the official release into `~/.local/bin` (no sudo) and warns
+  non-fatally when it is unavailable (https://cli.github.com).
 
 ## Deploy to a new machine
 
@@ -24,7 +28,7 @@ Personal opencode configuration. Managed as a public git repo for deployment acr
    ```
    This installs the local plugin-authoring dependencies (`@opencode-ai/plugin`, `@opencode/plugin`) into `./node_modules` (nothing global), auto-installs the `github-mcp-server` Go binary into `./bin/`, a self-contained Python venv with `mcp-dblp` at `./.venv/`, and a second venv with `ddgs[mcp]` at `./.venv-ddgs/` (ddgs gets its own venv because mcp-dblp pins `mcp<2` while `ddgs[mcp]` requires `mcp>=2.0`), checks that `codegraph` is available on PATH, and reminds you to set `NEURALWATT_API_KEY`.
 5. Install `codegraph` yourself if the script warned it is missing (on Arch: `sudo pacman -S codegraph`). The codegraph MCP server configured in `opencode.jsonc` will not start without it.
-6. `install.sh` now auto-installs the `github-mcp-server` Go binary into `./bin/` (symlinks a system one if present, otherwise downloads the latest release from GitHub) and creates a self-contained Python venv at `./.venv/` with `mcp-dblp` installed via `uv`. Run `./install.sh` on each deployed machine; re-running is safe.
+6. `install.sh` now auto-installs the `github-mcp-server` Go binary into `./bin/` (symlinks a system one if present, otherwise downloads the latest release from GitHub) and creates a self-contained Python venv at `./.venv/` with `mcp-dblp` installed via `uv`. Run `./install.sh` on each deployed machine; re-running is safe. The same run ensures the GitHub CLI: `scripts/install-gh.sh` reuses a system `gh`, otherwise installs the checksum-verified official release into `~/.local/bin`, and warns non-fatally when `gh` stays unavailable. Setting `GH_SKILLS="owner/repo [skill]"` additionally runs `gh skill install $GH_SKILLS --agent opencode --scope user` - `gh skill` is a preview feature and requires `gh auth login`.
 7. `install.sh` creates empty placeholder files in `secrets/` for the research-API keys. Paste each key into its file (just the key, no `var=` prefix or quotes): `secrets/semantic_scholar_api_key` (optional, https://www.semanticscholar.org/product/api) and `secrets/github_personal_access_token` (recommended, https://github.com/settings/tokens). No shell sourcing needed - opencode reads these files directly at startup.
 8. Export `NEURALWATT_API_KEY` in your shell (e.g. add to `~/.bashrc` or `~/.zshrc`).
 9. Start opencode. It will resolve `opencode-dcp@2.0.5` (listed in `opencode.jsonc`) on first run; the local plugin package `plugin-src/fusion-audit` is also listed there and its dependencies are installed by `./install.sh`.

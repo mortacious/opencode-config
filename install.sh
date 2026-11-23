@@ -119,6 +119,17 @@ install_github_mcp() {
 }
 install_github_mcp
 
+# --- GitHub CLI (gh) ---
+# Recommended, not required: PR workflows use gh. scripts/install-gh.sh reuses an
+# existing gh, else installs the official release (checksum-verified) into
+# ~/.local/bin; it warns non-fatally when gh stays unavailable.
+# Optional GH_SKILLS="owner/repo [skill] ..." installs harness skills through the
+# preview `gh skill install` after the check (needs `gh auth login`).
+bash "$CONFIG_DIR/scripts/install-gh.sh" || true
+if ! command -v gh >/dev/null 2>&1; then
+  echo "WARNING: gh is still unavailable; PR workflows and GH_SKILLS need it (https://cli.github.com)." >&2
+fi
+
 # --- uv (Python package manager; for the dblp MCP venv) ---
 # uv ships with uvx. The user already has uvx/uv. If missing, warn.
 if ! command -v uv >/dev/null 2>&1; then

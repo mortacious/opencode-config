@@ -105,6 +105,11 @@
         "command": ["{env:HOME}/.config/opencode/.venv-ddgs/bin/ddgs", "mcp"],
         "disabled": false
       },
+      "pdf-mcp": {
+        "type": "local",
+        "command": ["uvx", "pdf-mcp[semantic]"],
+        "disabled": false
+      },
       "sourcegraph": {
         "type": "local",
         "command": ["{env:HOME}/.config/opencode/.venv/bin/sourcegraph-mcp"],

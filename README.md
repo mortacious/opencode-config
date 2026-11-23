@@ -1,10 +1,17 @@
 # opencode config
 
-Personal opencode configuration. Managed as a private git repo for deployment across machines.
+Personal opencode configuration. Managed as a public git repo for deployment across machines.
+
+## Requirements
+
+- opencode >= 2.3.0 (tested on 2.3.2). The pinned context plugin `opencode-dcp@2.0.5`
+  targets the 2.3 API line; `install.sh` aborts early on older versions
+  (`SKIP_OPENCODE_VERSION_CHECK=1` bypasses the check, unsupported).
+- Node.js >= 22 with npm - for `scripts/` and the plugin packages.
 
 ## Deploy to a new machine
 
-1. Install opencode itself (out of scope for this repo).
+1. Install opencode itself (>= 2.3.0; out of scope for this repo).
 2. Install Node.js + npm if not present (on Arch: `sudo pacman -S nodejs npm`).
 3. Clone this repo directly into your opencode config directory:
    ```
@@ -15,31 +22,36 @@ Personal opencode configuration. Managed as a private git repo for deployment ac
    cd ~/.config/opencode
    ./install.sh
    ```
-   This installs the local plugin-authoring dependency (`@opencode-ai/plugin`) into `./node_modules` (nothing global), auto-installs the `github-mcp-server` Go binary into `./bin/`, a self-contained Python venv with `mcp-dblp` at `./.venv/`, and a second venv with `ddgs[mcp]` at `./.venv-ddgs/` (ddgs gets its own venv because mcp-dblp pins `mcp<2` while `ddgs[mcp]` requires `mcp>=2.0`), checks that `codegraph` is available on PATH, and reminds you to set `NEURALWATT_API_KEY`.
+   This installs the local plugin-authoring dependencies (`@opencode-ai/plugin`, `@opencode/plugin`) into `./node_modules` (nothing global), auto-installs the `github-mcp-server` Go binary into `./bin/`, a self-contained Python venv with `mcp-dblp` at `./.venv/`, and a second venv with `ddgs[mcp]` at `./.venv-ddgs/` (ddgs gets its own venv because mcp-dblp pins `mcp<2` while `ddgs[mcp]` requires `mcp>=2.0`), checks that `codegraph` is available on PATH, and reminds you to set `NEURALWATT_API_KEY`.
 5. Install `codegraph` yourself if the script warned it is missing (on Arch: `sudo pacman -S codegraph`). The codegraph MCP server configured in `opencode.jsonc` will not start without it.
 6. `install.sh` now auto-installs the `github-mcp-server` Go binary into `./bin/` (symlinks a system one if present, otherwise downloads the latest release from GitHub) and creates a self-contained Python venv at `./.venv/` with `mcp-dblp` installed via `uv`. Run `./install.sh` on each deployed machine; re-running is safe.
 7. `install.sh` creates empty placeholder files in `secrets/` for the research-API keys. Paste each key into its file (just the key, no `var=` prefix or quotes): `secrets/semantic_scholar_api_key` (optional, https://www.semanticscholar.org/product/api) and `secrets/github_personal_access_token` (recommended, https://github.com/settings/tokens). No shell sourcing needed - opencode reads these files directly at startup.
 8. Export `NEURALWATT_API_KEY` in your shell (e.g. add to `~/.bashrc` or `~/.zshrc`).
-9. Start opencode. It will resolve the plugins listed in `opencode.jsonc` (`@tarquinen/opencode-dcp`, `caveman-opencode-plugin`) on first run.
+9. Start opencode. It will resolve `opencode-dcp@2.0.5` (listed in `opencode.jsonc`) on first run; the local plugin package `plugin-src/fusion-audit` is also listed there and its dependencies are installed by `./install.sh`.
+10. The local plugin package `plugin-src/profile-switcher` (also listed in `opencode.jsonc`) is installed by `./install.sh` and provides in-session profile switching: `/profile` in the TUI plus a `Profile:` sidebar indicator, hot-swapping agent models without a service restart. Profile state is per opencode window directory, shared with `bin/oc` through `<CONFIG_DIR>/.active-profile` (format v1: an optional machine-wide `global\t<name>` fallback record plus one `location\t<absDir>\t<name>` record per directory; an explicit per-directory `default` overrides the global fallback; a legacy single-line file is read as the global record). `oc profile switch <name>` sets the CURRENT directory's profile; `oc profile switch --global <name>` writes the machine-wide fallback. Windows in different directories are fully independent, with separate profile records and no cross-window model migration; windows on the same directory share that directory's record and, within one shared service, converge with each other. A live switch rewrites the persisted models of the sessions the switching window currently has open as tabs (plus sessions created in that location afterward) - not the whole history - and only sessions whose model matches the previous profile target for their agent migrate: sessions manually moved to a different model are left alone, and sessions running at switch time pick up the new model once idle.
+11. The local plugin package `plugin-src/subagent-view` restores the v1-style live subagent model/token sidebar section. Its dependencies are installed by `./install.sh`.
+12. The local plugin package `plugin-src/fusion-bootstrap` injects the Fusion skill reminder as an extra system part (primaries get the delegation-template nudge, children get the "task prompt is the full spec" reminder). Its dependencies are installed by `./install.sh`.
+13. The local plugin package `plugin-src/fusion-channel` provides the steer/report channel (`/steer` command, `steer` tool, durable inbox log). It has no external dependencies; `./install.sh` installs it like the others.
+14. The local plugin package `plugin-src/subagent-cap` caps concurrent subagent spawns per profile (unlimited by default). Its dependencies are installed by `./install.sh`.
 
 ## What lives where
 
-See `AGENTS.md` for the authoritative layout map and the Fusion delegation pattern that governs how the agents (`build`, `plan`, `sidekick`, `explore`, `research`, `design`, `reviewer`, `sparring`, `vision`) divide planning from execution.
+See `REPO.md` for the authoritative layout map and `AGENTS.md` for the Fusion delegation pattern that governs how the agents (`orchestrator` as the single entrypoint, then `sidekick` for execution and commits, `analyst` for read-only exploration/research/planning/visual inspection/red-team, and `reviewer` for the audit gate) divide planning from execution.
 
 ## Profiles
 
-A home-grown profile system lets you launch opencode under different model/config overlays. `bin/oc` is a small bash wrapper that sets `OPENCODE_CONFIG` to a profile's `opencode.jsonc` overlay (opencode deep-merges it on top of the base config). Profiles live in `profiles/<name>/opencode.jsonc` and travel with the repo via `git pull`.
+A home-grown profile system lets you launch opencode under different model/config overlays. Each profile authors `profiles/<name>/tiers.json`, which defines the tier names, their models, one-line descriptions, and a default tier per agent; a profile may define different or additional tiers. `scripts/tiers-sync.mjs` expands it into a GENERATED `profiles/<name>/opencode.jsonc`. `bin/oc` sets that overlay as `OPENCODE_CONFIG` (opencode deep-merges it on top of the base config) after re-syncing it. Edit `tiers.json`, never the generated overlay. Profiles travel with the repo via `git pull`.
 
 ### Install
 
-`./install.sh` symlinks `bin/oc` into `~/.local/bin/oc` (or `/usr/local/bin/oc` if that is writable). Make sure `~/.local/bin` is on your PATH (add `export PATH="$HOME/.local/bin:$PATH"` to your shell rc if not). `install.sh` also ensures `profiles/default/opencode.jsonc` exists.
+`./install.sh` symlinks `bin/oc` into `~/.local/bin/oc` (or `/usr/local/bin/oc` if that is writable). Make sure `~/.local/bin` is on your PATH (add `export PATH="$HOME/.local/bin:$PATH"` to your shell rc if not). `install.sh` also ensures `profiles/default/opencode.jsonc` exists; it is tracked and generated from `profiles/default/tiers.json`, so a normal checkout already has it.
 
 ### Use
 
 Launch opencode with a specific profile:
 ```
-oc cheap-local           # uses profiles/cheap-local/opencode.jsonc
-oc default               # identity overlay, base config unchanged
+oc cheap-local           # cheap-local tier models: every agent on the Thor flash id
+oc default               # deepseek-v4.1-flash tiers, vision on glm-5.3-flash
 oc                       # uses .active-profile or 'default'
 ```
 
@@ -55,12 +67,12 @@ oc profile list
 
 ### Fork a profile (optionally swapping every model)
 
-Create a new cheap-local-style overlay by forking `default` and rewriting every agent model + `small_model` to a different model id (requires `jq`):
+Create a new cheap-local-style profile by cloning a tier-managed profile and retargeting every tier entry to one id (requires `jq`). The clone copies `tiers.json`; the overlay is regenerated from it, so the clone stays tier-managed:
 ```
-oc profile add experimental --clone default --swap-model "Amenable Thor 1/qwen3.8-27b"
+oc profile add experimental --clone default --swap-model "<provider>/<model-id>"
 ```
 
-`--swap-model` also strips `variant` fields (the new provider may not define any).
+For a tier-managed profile `--swap-model` rewrites all tier entries, so variants come from the new id. A legacy overlay without `tiers.json` instead has every `agents.*.model` plus `small_model` rewritten and `variant` fields stripped (the new provider may not define any).
 
 ### Install an external project-local bundle
 
@@ -72,7 +84,7 @@ Clones `agentic-vault` into `~/my-vault/.agentic-vault` and runs its `setup.sh`,
 
 ### Adding a new model for cheap experiments
 
-If the model is not yet registered as a provider model in `opencode.jsonc`, add it under the relevant `provider.<name>.models` block first. Then either edit `profiles/cheap-local/opencode.jsonc` directly, or fork:
+If the model is not yet registered as a provider model in `opencode.jsonc`, add it under the relevant `provider.<name>.models` block first. Then edit the relevant `profiles/<name>/tiers.json` tier value (`oc` re-syncs before the next launch), or fork:
 ```
 oc profile add cheap-qwen --clone default --swap-model "<provider>/<model-id>"
 oc cheap-qwen
@@ -80,7 +92,7 @@ oc cheap-qwen
 
 ## Secret handling
 
-This repo is private. The `Amenable Thor 1` provider block in `opencode.jsonc` reaches a LAN-only server and contains an inline API key; that block is safe to keep in the private repo as long as the LAN/VPN boundary holds. The `neuralwatt` provider key is NOT in the repo - it is read from the environment (`NEURALWATT_API_KEY`) and must be set per machine.
+This repo is public. The `Amenable Thor 1` provider block in `opencode.jsonc` reaches a LAN-only server; its API key and base URL are not in the tree - they live in the gitignored `secrets/lan_api_key` and `secrets/lan_base_url` files and are pulled in via `{file:...}` references. The `neuralwatt` provider key is NOT in the repo - it is read from the environment (`NEURALWATT_API_KEY`) and must be set per machine.
 
 The research-API keys (Semantic Scholar, GitHub PAT) live in the gitignored `secrets/` directory as one file per key, referenced from `opencode.jsonc` via `{file:secrets/<name>}` interpolation - opencode reads them directly at startup, so no shell sourcing is needed. `install.sh` creates empty placeholders. Sourcegraph keys (if enabled later) use `{env:SRC_ENDPOINT}`/`{env:SRC_ACCESS_TOKEN}` environment variables instead.
 

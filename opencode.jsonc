@@ -1,132 +1,208 @@
+// OpenCode v2 (branch v2-port)
 {
   "$schema": "https://opencode.ai/config.json",
   "small_model": "opencode-go/mimo-v2.6-flash",
-  "subagent_depth": 2,
-  "plugin": [
-    "@tarquinen/opencode-dcp@latest",
-    "caveman-opencode-plugin@latest"
+  // Single entrypoint: the built-in build/plan primaries are disabled below.
+  "default_agent": "orchestrator",
+  "websearch": { "provider": "exa" },
+  "experimental": { "subagent_depth": 2 },
+  "plugins": [
+    {
+      "package": "opencode-dcp@2.0.5",
+      "options": {
+        "maxContextLimit": "80%",
+        "nudgeFrequency": 5,
+        "iterationNudgeThreshold": 12,
+        "allowSubAgents": true
+      }
+    },
+    "./plugin-src/fusion-audit",
+    "./plugin-src/fusion-bootstrap",
+    "./plugin-src/fusion-channel",
+    "./plugin-src/profile-switcher",
+    "./plugin-src/subagent-view",
+    {
+      "package": "./plugin-src/subagent-cap",
+      "options": {
+        "max": 0,
+        "profiles": { "cheap-local": 3 }
+      }
+    }
   ],
-  "lsp": true,
-  // Auto-allow the shared knowledge dir so agents loading web-search
-  // strategy modules via read don't prompt for external_directory access.
-  // Scope is narrow: .env (one level up, gitignored) stays blocked.
-  "permission": {
-    "external_directory": {
-      "~/.config/opencode/knowledge/**": "allow"
-    }
-  },
+  // lsp: dropped in v2 port - not a documented v2 top-level key
+  // Local configuration/state/cache directories under ~ are readable; other
+  // home paths fall through to the default ask effect (a permission request),
+  // so user-data directories (Documents, Downloads, Pictures, Projects outside
+  // the workspace) prompt instead of silently allowing. Standard system dirs
+  // are allowed; anything unmatched (e.g. /var, /mnt) keeps the default ask
+  // effect. Permissions evaluate findLast, so later rules win.
+  "permissions": [
+    { "action": "external_directory", "resource": "~/.config/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "~/.local/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "~/.cache/**", "effect": "allow" },
+    // Standard system directories.
+    { "action": "external_directory", "resource": "/usr/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/lib/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/lib64/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/bin/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/sbin/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/etc/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/opt/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/proc/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/sys/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/dev/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/tmp/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/run/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "/snap/**", "effect": "allow" },
+    // Defense-in-depth read denies: secrets stay blocked even inside allowed trees (global session rules evaluate last).
+    { "action": "read", "resource": "~/.ssh/**", "effect": "deny" },
+    { "action": "read", "resource": "~/.gnupg/**", "effect": "deny" },
+    { "action": "read", "resource": "~/.aws/**", "effect": "deny" },
+    { "action": "read", "resource": "~/.config/gh/**", "effect": "deny" },
+    { "action": "read", "resource": ".env*", "effect": "deny" },
+    { "action": "read", "resource": "**/.env*", "effect": "deny" },
+    // DCP `prune` tool: permissions evaluate findLast with session/global rules after agent rules, so this allow outranks agent tool denies.
+    { "action": "prune", "resource": "*", "effect": "allow" },
+    // Fusion channel tools: global/session rules evaluate last, so these allows work inside blanket-deny shells; the steer tool itself confines targets to direct children.
+    { "action": "steer", "resource": "*", "effect": "allow" },
+    { "action": "report", "resource": "*", "effect": "allow" }
+  ],
   "mcp": {
-    "codegraph": {
-      "type": "local",
-      "command": [
-        "codegraph",
-        "serve",
-        "--mcp"
-      ],
-      "enabled": true
-    },
-    "semantic-scholar": {
-      "type": "local",
-      "command": ["npx", "-y", "@xbghc/semanticscholar-mcp"],
-      "environment": { "SEMANTIC_SCHOLAR_API_KEY": "{file:secrets/semantic_scholar_api_key}" },
-      "enabled": true
-    },
-    "arxiv": {
-      "type": "local",
-      "command": ["npx", "-y", "@cyanheads/arxiv-mcp-server"],
-      "enabled": true
-    },
-    "github": {
-      "type": "local",
-      "command": ["{env:HOME}/.config/opencode/bin/github-mcp-server", "stdio", "--read-only", "--toolsets", "repos,issues,pull_requests,users"],
-      "environment": { "GITHUB_PERSONAL_ACCESS_TOKEN": "{file:secrets/github_personal_access_token}" },
-      "enabled": true
-    },
-    "dblp": {
-      "type": "local",
-      "command": ["{env:HOME}/.config/opencode/.venv/bin/mcp-dblp"],
-      "enabled": true
-    },
-    "ddgs": {
-      "type": "local",
-      "command": ["{env:HOME}/.config/opencode/.venv-ddgs/bin/ddgs", "mcp"],
-      "enabled": true
-    },
-    "sourcegraph": {
-      "type": "local",
-      "command": ["{env:HOME}/.config/opencode/.venv/bin/sourcegraph-mcp"],
-      "environment": {
-        "SRC_ENDPOINT": "{env:SRC_ENDPOINT}",
-        "SRC_ACCESS_TOKEN": "{env:SRC_ACCESS_TOKEN}"
+    "servers": {
+      "codegraph": {
+        "type": "local",
+        "command": [
+          "codegraph",
+          "serve",
+          "--mcp"
+        ],
+        "disabled": false
       },
-      "enabled": false
+      "semantic-scholar": {
+        "type": "local",
+        "command": ["npx", "-y", "@xbghc/semanticscholar-mcp"],
+        "environment": { "SEMANTIC_SCHOLAR_API_KEY": "{file:secrets/semantic_scholar_api_key}" },
+        "disabled": false
+      },
+      "arxiv": {
+        "type": "local",
+        "command": ["npx", "-y", "@cyanheads/arxiv-mcp-server"],
+        "disabled": false
+      },
+      "github": {
+        "type": "local",
+        "command": ["{env:HOME}/.config/opencode/bin/github-mcp-server", "stdio", "--read-only", "--toolsets", "repos,issues,pull_requests,users"],
+        "environment": { "GITHUB_PERSONAL_ACCESS_TOKEN": "{file:secrets/github_personal_access_token}" },
+        "disabled": false
+      },
+      "dblp": {
+        "type": "local",
+        "command": ["{env:HOME}/.config/opencode/.venv/bin/mcp-dblp"],
+        "disabled": false
+      },
+      "ddgs": {
+        "type": "local",
+        "command": ["{env:HOME}/.config/opencode/.venv-ddgs/bin/ddgs", "mcp"],
+        "disabled": false
+      },
+      "sourcegraph": {
+        "type": "local",
+        "command": ["{env:HOME}/.config/opencode/.venv/bin/sourcegraph-mcp"],
+        "environment": {
+          "SRC_ENDPOINT": "{env:SRC_ENDPOINT}",
+          "SRC_ACCESS_TOKEN": "{env:SRC_ACCESS_TOKEN}"
+        },
+        "disabled": true
+      }
     }
   },
-  "agent": {
+  "agents": {
+    "orchestrator": {
+      "model": "opencode-go/deepseek-v4.1-flash#max"
+    },
+    "analyst": {
+      "model": "opencode-go/deepseek-v4.1-flash#max"
+    },
+    // Dedicated primaries replace the built-ins: disabled removes them from
+    // the agent list and the TUI picker (opencode 2.3.2).
     "build": {
-      "model": "opencode-go/glm-5.3-flash"
+      "disabled": true
     },
     "plan": {
-      "model": "opencode-go/glm-5.3-flash"
-    },
-    "sparring": {
-      "model": "opencode-go/deepseek-v4.1-flash"
+      "disabled": true
     },
     "reviewer": {
       "model": "opencode-go/deepseek-v4.1-flash"
     },
     "sidekick": {
-      "model": "opencode-go/glm-5.3-flash"
-    },
-    "explore": {
       "model": "opencode-go/deepseek-v4.1-flash"
-    },
-    "research": {
-      "model": "opencode-go/deepseek-v4.1-flash"
-    },
-    "design": {
-      "model": "gpt-5.6-luna",
-      "variant": "max"
-    },
-    "vision": {
-      "model": "gpt-5.6-luna",
-      "variant": "max"
     }
   },
-  "provider": {
+  "providers": {
+    // gateway only accepts text + image_url; v2 PR #50933 lowers PDFs to type:"file" parts; pinning capabilities.input converts unsupported media to a text placeholder.
+    "opencode-go": {
+      "models": {
+        "glm-5.3-flash": {
+          "capabilities": { "tools": true, "input": ["text", "image"], "output": ["text"] },
+          // gateway rejects native reasoning_effort on this route; null strips the wire param so upstream applies its own default effort
+          "variants": [
+            { "id": "low", "settings": { "reasoningEffort": null } },
+            { "id": "high", "settings": { "reasoningEffort": null } },
+            { "id": "max", "settings": { "reasoningEffort": null } }
+          ]
+        },
+        "deepseek-v4.1-flash": {
+          "capabilities": { "tools": true, "input": ["text", "image"], "output": ["text"] },
+          // unlike glm-5.3-flash, this route accepts native reasoning_effort, so variants set it directly
+          "variants": [
+            { "id": "max", "settings": { "reasoningEffort": "max" } },
+            { "id": "none", "settings": { "reasoningEffort": "none" } }
+          ]
+        },
+        "gpt-5.6-luna": {
+          "capabilities": { "tools": true, "input": ["text", "image"], "output": ["text"] }
+        },
+        "mimo-v2.6-flash": {
+          "capabilities": { "tools": true, "input": ["text", "image"], "output": ["text"] }
+        }
+      }
+    },
     "neuralwatt": {
       "models": {
         "glm-5.2": {
-          "variants": {
-            "high": {
-              "reasoningEffort": "high"
-            },
-            "max": {
-              "reasoningEffort": "max"
-            }
-          }
+          "variants": [
+            { "id": "high", "body": { "reasoningEffort": "high" } },
+            { "id": "max", "body": { "reasoningEffort": "max" } }
+          ]
         }
       }
     },
     "Amenable Thor 1": {
-        "npm": "@ai-sdk/openai-compatible",
-        "name": "Amenable Thor 1",
-        "options": {
-          "baseURL": "http://10.249.3.0:3000/api/v1",
-          "apiKey": "sk-1160d220edc64d189934232ad4ff77b7"
+      "package": "aisdk:@ai-sdk/openai-compatible",
+      "name": "Amenable Thor 1",
+      "settings": {
+        "baseURL": "{file:secrets/lan_base_url}",
+        "apiKey": "{file:secrets/lan_api_key}"
       },
       "models": {
         "unsloth/Qwen3.8-27B-NVFP4": {
           "name": "Qwen3.8 27B"
         },
-	"qwen38-flash-next": {
-	  "name": "qwen38-flash-next",
-	  "variants": {
-	    "xhigh": { "reasoningEffort": "xhigh" },
-	    "medium": { "reasoningEffort": "medium" },
-	    "low": { "reasoningEffort": "low" }
-	  }
-	}
+        "qwen38-flash-next": {
+          "name": "qwen38-flash-next",
+          "limit": { "context": 250000 },
+          "variants": [
+            { "id": "xhigh", "body": { "reasoningEffort": "xhigh" } },
+            { "id": "medium", "body": { "reasoningEffort": "medium" } },
+            { "id": "low", "body": { "reasoningEffort": "low" } }
+          ]
+        }
+      }
+    },
+    // OpenRouter with zero data retention (ZDR), no data collection, fp8-or-better quantization floor only
+    "openrouter": {
+      "body": {
+        "provider": { "zdr": true, "data_collection": "deny", "quantizations": ["fp8", "fp16", "bf16", "fp32"] }
       }
     }
   }

@@ -1,65 +1,70 @@
 # AGENTS.md
 
-This repository is the user's personal OpenCode configuration directory (`~/.config/opencode/`), not an application. Every file here is loaded by OpenCode at session start and directly shapes the behavior of future sessions. Treat edits as edits to the agent runtime itself.
+This repository is the user's personal OpenCode configuration directory (`~/.config/opencode/`),
+not an application. Every file here loads at session start and shapes future sessions. Working in
+this repository itself also means reading REPO.md (layout, gitignore policy, editing rules).
 
-## Layout
+## The Fusion pattern
 
-- `opencode.jsonc` - main config: providers, per-agent models/variants, plugin list, MCP servers, `subagent_depth: 2`.
-- `agents/*.md` - agent definitions (frontmatter + prompt body). `build.md` is the PRIMARY main agent; its body is the system prompt fed to the main agent every session. `plan.md` is the second primary (plan-mode, read-only). Editing these changes every future session.
-- `skills/<name>/SKILL.md` - skill definitions: `plan-review`, `reflect`, `simplify`, `create-profile`.
-- `command/` - custom command directory (slash commands); currently holds `quick.md` and `profile.md`. Drop new command files here.
-- `knowledge/web-search-modules/` - search-strategy modules used by the research/web-search flow.
-- `plugins/fusion-audit.js` - read-only observability plugin for the Fusion delegation tree. Logs subagent spawns and edit/task tool calls to OpenCode logs under service `fusion-audit`. It does NOT enforce who-does-what; permissions do that.
-- `dcp.jsonc` - schema reference for the `@tarquinen/opencode-dcp` plugin (the `compress` tool comes from this).
-- `tui.json` - SEPARATE plugin list loaded in the TUI context. The DCP plugin appears in both this and `opencode.jsonc`; keep them in sync when changing plugin sets.
-- `package.json` - runtime dep `@opencode-ai/plugin` (used for authoring plugins).
-- `profiles/` - profile overlays. Each subdir holds an `opencode.jsonc` that opencode deep-merges on top of the base config when launched with `oc <profile>`. `default/` is identity; `cheap-local/` swaps every agent model to a local Qwen id (placeholder). Travel with the repo via `git pull`.
-- `install.sh` - bootstrap script for multi-machine deployment. Checks codegraph is on PATH, runs `npm install` for local deps, reminds about env-var API keys. Idempotent. See `README.md` for the deploy recipe.
-- `bin/oc` - bash wrapper that launches opencode under a profile overlay by setting `OPENCODE_CONFIG`. Subcommands: `oc [profile]`, `oc profile list|current|switch|add|delete|rename|install`, `oc completion <shell>`. Symlinked onto PATH by `install.sh`. Related files: `command/profile.md` (slash command) and `skills/create-profile/SKILL.md` (profile-management skill).
-- `README.md` - deployment recipe and secret-handling notes for cloning this config to a new machine.
+One visible `mode: primary` agent (`orchestrator`) owns the plan, ambiguity calls, and final
+review. It cannot edit files; every change is delegated to a `mode: subagent` shell and reviewed
+before it is accepted. The roster is three capability shells: `sidekick` (execution, visual work,
+and commits), `analyst` (read-only generalist: exploration, research, planning, visual inspection,
+red-team), and `reviewer` (audit gate). Method knowledge lives in `skills/`; agent files are thin
+capability shells that point at it. Subagents cannot ask the user, so the interactive settle loop
+stays with the orchestrator.
 
-## Gitignore policy
+## Invariants
 
-`.gitignore` ignores `node_modules` and `bun.lock`. Everything else - including `package.json`, `package-lock.json`, and `.gitignore` itself - is committed. This makes the config dir self-contained for multi-machine deployment: a fresh clone plus `./install.sh` (see `README.md`) installs the local `@opencode-ai/plugin` dependency and checks the codegraph MCP dependency. Do not re-add `package.json` or `package-lock.json` to `.gitignore` - the deployment flow depends on them being tracked.
-
-## The Fusion delegation pattern
-
-Two `mode: primary` agents (`build`, `plan`) own planning, ambiguity calls, and final review. They CANNOT edit files: `edit`, `write`, `apply_patch`, `grep`, `glob`, `list` are all denied. Their `bash` is allowlisted to read-only git (`diff`, `status`, `log`, `show`, `ls-files`, `add`) plus `lint`/`test`/`typecheck`-style commands; `git commit` and `git push` require per-command user approval. They mutate files only by delegating via `task`.
-
-`task` allowlist on the primary agents: ONLY `sidekick`, `explore`, `research`, `design`, `reviewer`, `vision`, `sparring`. The built-in `general` subagent is explicitly excluded - do not route to it.
-
-Subagents (`mode: subagent`):
-- `sidekick` - mechanical execution. Full `edit` + `bash`, but cannot `git commit`/`push` (direct and common wrapper forms are denied). Default executor for code changes.
-- `design` - frontend/UI. `edit` + `bash` allowed, `external_directory` denied.
-- `reviewer` - plan/diff critique. `edit` denied; read-only git + lint/test + `plan-review`/`reflect` skills.
-- `research` - read-only research. `webfetch`/`websearch` plus the research-API MCP servers (`semantic-scholar`, `arxiv`, `github`, `dblp`, `sourcegraph`) and `context7`; may delegate onward to `explore`.
-- `explore` - read-only. `webfetch`/`websearch` allowed.
-- `sparring` - scientific critic. Read-only (no `edit`/`bash`/`task`): `webfetch`, `websearch`, `date`, plus the research-API MCP servers (`semantic-scholar`, `arxiv`, `github`, `dblp`, `sourcegraph`) and `context7` for library-docs verification.
-- `vision` - read-only vision-capable executor that runs a visual-inspection spec provided by the delegating agent (edit/bash/task denied).
-
-When editing agent definitions, preserve this separation: primaries must stay unable to edit; execution must stay unable to commit.
-
-## Models
-
-All model selection for the agents defined here lives in `opencode.jsonc` `agent.*`; profile overlays may swap those values. No `agents/*.md` frontmatter sets `model` or `variant` - the only model-related frontmatter key is `sparring`'s `temperature: 0.4`.
-
-- `build`, `plan`, `sidekick`: `opencode-go/glm-5.3-flash` (no variant).
-- `sparring`, `reviewer`, `explore`, `research`: `opencode-go/deepseek-v4.1-flash` (no variant).
-- `design`: `opencode/gpt-5.6-luna` with `variant: max` - vision-capable, since design handles UI/screenshots.
-- `small_model`: `opencode-go/mimo-v2.6-flash`.
-
-Neither MiMo model declares reasoning-effort variants on models.dev, so do not add `variant` keys to them: an unknown variant fails model resolution at startup. The `provider.neuralwatt.models.glm-5.2.variants` block (`high`, `max`) remains in the config but no agent currently references it.
-
-## MCP servers
-
-`codegraph` is configured as a local MCP server (`codegraph serve --mcp`). It only returns results for projects that have a `.codegraph/` index; this config dir has none, so queries here need an explicit `projectPath` pointing at an indexed project. The `build` agent is allowlisted to run `codegraph init` and `codegraph update`, and will create or refresh an index in a code project that lacks one before querying it. `gh_grep` and `context7` are also allowlisted for the primary agents via their `mcps:` frontmatter.
-
-Five research-API MCP servers are wired for the `sparring` and `research` subagents only (NOT for `build`/`plan`): `semantic-scholar` (npx `@xbghc/semanticscholar-mcp`, reads `SEMANTIC_SCHOLAR_API_KEY`), `arxiv` (npx `@cyanheads/arxiv-mcp-server`, no key, stdio is the default transport), `github` (official Go binary at `./bin/github-mcp-server`, auto-downloaded into `./bin/` by `install.sh`; invoked as `{env:HOME}/.config/opencode/bin/github-mcp-server stdio --read-only --toolsets repos,issues,pull_requests,users`, reads `GITHUB_PERSONAL_ACCESS_TOKEN`), `dblp` (installed into `./.venv/` by `install.sh` via `uv`, invoked as `{env:HOME}/.config/opencode/.venv/bin/mcp-dblp`, no key), and `sourcegraph` (NOT auto-installed - akbad/sourcegraph-mcp only exposes HTTP/SSE transports, no stdio, so it stays `enabled: false` until manually set up; reads `SRC_ENDPOINT` + `SRC_ACCESS_TOKEN`). The tokens come from the gitignored `.env` via `{env:VAR}` interpolation. The `github` and `dblp` binaries live in the gitignored `./bin/` and `./.venv/` dirs and are referenced via `{env:HOME}` absolute paths in `opencode.jsonc` - they do NOT rely on system PATH. `semantic-scholar` and `arxiv` use `npx -y`, which auto-fetches on first run. See `knowledge/web-search-modules/research-apis.md` for the tool-selection matrix. A sixth local MCP server, `ddgs`, is wired for the `sparring` and `research` subagents alongside the research-API servers: installed into its own `./.venv-ddgs/` by `install.sh` via `uv` (`ddgs[mcp]`; a separate venv because mcp-dblp pins `mcp<2` while `ddgs[mcp]` requires `mcp>=2.0`), invoked as `{env:HOME}/.config/opencode/.venv-ddgs/bin/ddgs mcp`, no key (scrapes DuckDuckGo). It provides `search_text`, `search_news`, `extract_content`, and other typed search tools - the preferred quota-free general-web search path; `websearch`/`webfetch` are the final fallback. The `build` and `plan` primary agents have `ddgs` plus `websearch`/`webfetch` enabled for single-shot external lookups (one doc page, one library version, one paper citation). They still delegate multi-source synthesis to `research` to keep their context windows lean.
-
-## Editing this repo
-
-- This is opencode's own config. Prefer loading the `customize-opencode` skill before non-trivial config edits; it carries the validation rules that matter here.
-- There is no build/test/lint for config. Verification = start a new OpenCode session (config and agent/skill definitions load at session start; some plugin changes need a restart).
-- `package.json` is committed (see Gitignore policy above). The only dependency is `@opencode-ai/plugin`; `./install.sh` runs `npm install` to populate `node_modules` for plugin authoring on each deployed machine.
-- Output must be ASCII only across all agents - the response pipeline mangles non-ASCII bytes (em-dashes, smart quotes, ellipsis characters). Use ` - `, straight quotes, `...`.
-- The `Amenable Thor 1` provider block in `opencode.jsonc` contains a hardcoded API key and an internal-IP base URL. Treat it as a secret; do not echo it into commits, diffs, logs, or summaries.
+- Primaries never edit. `orchestrator` decides when and what to commit, push, or merge, then
+  delegates execution to `sidekick` through the `fusion-commit` skill and
+  `skills/fusion-delegation-spec/templates/commit-task.md`. No other agent runs `git add`,
+  `git commit`, or `git push`, and `sidekick` never amends or forces.
+- The built-in `build` and `plan` primaries are disabled in `opencode.jsonc`
+  (`agents.build.disabled`, `agents.plan.disabled`); `default_agent` is `orchestrator`, so a bare
+  session starts in the single visible primary. `analyst` is not a picker entry: the orchestrator
+  dispatches it as a read-only subagent.
+- Primary `subagent` allowlist: `sidekick`, `analyst`, `reviewer`. The built-in `general`
+  subagent is excluded - do not route to it.
+- Only the orchestrator creates or removes git worktrees; execution agents never do.
+- Code never hardcodes the composition: plugins, scripts, and commands discover agents from
+  `agents/*.md` (mode and permission arrays), tiers from `profiles/*/tiers.json`, and skills from
+  `skills/`. New agent files, tier entries, and skill directories are picked up automatically, and a
+  roster-name literal in code is a bug. Agent and skill names in this and other docs are
+  illustrative examples, not a registry.
+- Primaries steer a running child with the `steer` tool (target by session id or agent name);
+  subagents report important mid-task discoveries to the orchestrator with the `report` tool
+  (kind `note|question|blocker`) - the inbox plus live channel in `fusion-channel`.
+- Permissions are V2 `permissions` arrays only, evaluated findLast (last matching rule wins):
+  write the most general rule first and the specific exceptions last, so a deny-list policy reads
+  blanket allow -> denies -> re-allows. Canonical action names are
+  `read`, `edit`, `shell`, `subagent`, `skill`, `webfetch`, `websearch`, `external_directory`,
+  `execute`, and MCP tool ids such as `ddgs_search_text`. Legacy names (`bash`, `task`, `write`,
+  `apply_patch`) are silent no-ops inside an array.
+- Frontmatter carries `description`, `mode`, and the V2 `permissions` array. `temperature`,
+  `mcps:`, `skills:`, and `model:` are unsupported fields on opencode 2.2.6 and must not
+  reappear.
+- Model tiers are profile data: each profile authors `profiles/<name>/tiers.json`, which defines
+  the tier names, their models, one-line descriptions, and a default tier per agent. A profile may
+  define different or additional tiers. `scripts/tiers-sync.mjs` GENERATES the profile's
+  `agents.*.model` pins from it - those pins are generated and must not be hand-edited. `bin/oc`
+  re-syncs at launch and refuses to launch when the sync fails (invalid `tiers.json`, unwritable
+  overlay). A profile with no `tiers.json` falls back to the base `opencode.jsonc` pins. The
+  orchestrator reads the tier table from the bootstrap injection, chooses a tier per delegation,
+  defaults to the delegating agent's tier, and may override one step; the chosen tier's literal
+  model id goes in the `subagent` call's `model` parameter. No skill or plugin may hardcode a tier
+  name: a modality requirement such as image input is whatever a tier's description says. Agent
+  frontmatter never carries a model.
+- Skills are advertised session-wide and filtered only by `skill` permission rules. An agent that
+  needs a method loads it with the `skill` tool; restrict exposure with `skill` rules if needed.
+- Branch plan logs follow the `fusion-plan-log` skill: `.plans/<branch>.md`, live sections
+  (`Plan`, `Open issues`, `Next step`) rewritten by the primary, cumulative sections
+  (`Decisions`, `Progress log`, `Implemented`) append-only, `.plans/` never tracked.
+- `prune` (the DCP tool) takes `{topic, content}` where `content` is an array of
+  `{startId, endId, summary}` ranges - never a plain string. A summary carries a previously
+  pruned block forward with a `(bN)` placeholder; the `mNNNN`/`bN` boundary ids are renumbered
+  every dispatch, so ids copied from an earlier call throw - use the currently visible tags.
+- Output is ASCII only across all agents: ` - ` not em-dashes, straight quotes, `...`.
+- Provider credentials and internal endpoints live in gitignored `secrets/` files referenced via
+  `{file:...}` (or the opencode auth store); never commit secret values. The same advisory applies
+  to history.

@@ -1,0 +1,786 @@
+// profile-switcher: TUI plugin (plugin id "profile-switcher.tui").
+//
+// - Slash command "/profile": with an argument -> rpc.set directly; without
+//   -> ui.dialog.select over rpc list() (current profile marked), then
+//   rpc.set. The result is toasted with the prefix "Profile switched: "
+//   including any fallback substitutions and warnings.
+// - Session claiming: this window claims ONLY the sessions currently open as
+//   tabs, each tagged with a stable per-plugin-load `window` id and the
+//   session's OWN location directory (falling back to this TUI's directory
+//   when the session's location is unknown). Every populate replaces this
+//   window's claim set on the server, so sessions whose tabs closed are pruned
+//   and migration stays scoped to this window; an empty list is a valid
+//   refresh. Claiming re-runs
+//   debounced when the open-tab set changes, once just before a profile
+//   switch, and once (empty) at cleanup. With tabs disabled or unreadable it
+//   falls back to the reactive session list.
+// - Profile indicator slots: "sidebar.content" (session-gated) and
+//   "home.footer" (startup/home screen, session-less) both render
+//   "Profile: <active>", initialized from rpc current() and kept live by
+//   subscribing to the rpc "changed" event, applied only for events from this
+//   window's location; the subscription and both slots are unsubscribed in
+//   cleanup.
+//
+// Resilience: plugin setup runs OUTSIDE the host's Solid component tree, so
+// context.keymap.layer() cannot be called directly (it resolves a
+// Keymap.Provider from the owning component and throws otherwise). The keymap
+// layer is therefore created inside an always-mounted "app" slot's component
+// via onMount. Every registration is individually guarded: a failure degrades
+// that one piece (logged, no throw) instead of killing the whole plugin, and
+// the sidebar slot + rpc subscription still register.
+//
+// The shared Profile RPC definition is imported from ./rpc.ts. JSON Schema
+// RPC values surface as `unknown`, so the result interfaces exported by
+// ./rpc.ts are used to narrow them.
+//
+// All files ASCII only.
+
+import { createEffect, createSignal, For, onMount, Show } from "solid-js";
+
+import { Plugin } from "@opencode/plugin/tui";
+import type { BoxRenderable } from "@opentui/core";
+
+import {
+  Profile,
+  type ProfileAgentModelEntry,
+  type ProfileChangedEvent,
+  type ProfileCurrentResult,
+  type ProfileListResult,
+  type ProfileSetResult,
+  type ProfileTierModelEntry,
+} from "./rpc.js";
+
+function errorText(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+function degrade(what: string, err: unknown): void {
+  // Never surface the raw host error text here: a missing keymap provider must
+  // not reintroduce its literal message into opencode logs.
+  console.warn(
+    "[profile-switcher.tui] " + what + " unavailable: " + errorText(err)
+  );
+}
+
+// Graceful single-line truncation (mirrors subagent-view.tui).
+function truncate(value: string, max: number): string {
+  if (value.length <= max) return value;
+  if (max <= 3) return value.slice(0, max);
+  return value.slice(0, max - 3) + "...";
+}
+
+// The sidebar.content slot is 37 columns wide in opencode v2.3.2. Its render
+// input carries no width, so this is the value used until the root box's
+// layout measurement lands.
+const SIDEBAR_WIDTH_FALLBACK = 37;
+
+// Usable text width for a measured slot width: leave one column for the
+// scrollbar, and never go below 8 columns.
+function usableWidth(width: number): number {
+  return Math.max(8, width - 1);
+}
+
+// Debounce for the reactive open-tab reclaim (see registerTabsReclaim).
+const TAB_RECLAIM_DEBOUNCE_MS = 300;
+
+// Structured ModelRef -> the normalized "providerID/id#variant" ref string the
+// server tracker uses; the "default" variant is dropped. Undefined when the
+// ref is missing providerID or id (un-serializable).
+function serializeModel(model: unknown): string | undefined {
+  if (!model || typeof model !== "object") return undefined;
+  const m = model as { providerID?: unknown; id?: unknown; variant?: unknown };
+  if (typeof m.providerID !== "string" || typeof m.id !== "string") {
+    return undefined;
+  }
+  return (
+    m.providerID +
+    "/" +
+    m.id +
+    (typeof m.variant === "string" && m.variant && m.variant !== "default"
+      ? "#" + m.variant
+      : "")
+  );
+}
+
+interface PopulateEntry {
+  sessionID: string;
+  agent?: string;
+  model?: string;
+  parentID?: string;
+  // The SESSION's own directory (from session.get), so the server routes the
+  // seed to the plugin instance that owns that location. Falls back to this
+  // TUI's directory only when the session's own location is unknown. Absent
+  // in a degenerate context with neither.
+  location?: string;
+  // This window's stable claim id (see windowID): the server replaces this
+  // window's whole claim set per populate, which is what prunes closed tabs.
+  window: string;
+}
+
+interface SessionInfoLike {
+  id?: unknown;
+  agent?: unknown;
+  model?: unknown;
+  parentID?: unknown;
+  time?: { archived?: unknown };
+  location?: { directory?: unknown };
+}
+
+export default Plugin.define({
+  id: "profile-switcher.tui",
+  async setup(context) {
+    const disposers: Array<() => void> = [];
+    let keymapRegistered = false;
+
+    const [active, setActive] = createSignal("default");
+    const [agents, setAgents] = createSignal<ProfileAgentModelEntry[]>([]);
+    // The active profile's authored tier rows, empty when the profile authors
+    // no readable tiers.json (the legacy per-agent fallback).
+    const [tiers, setTiers] = createSignal<ProfileTierModelEntry[]>([]);
+
+    const rpc = context.client.rpc(Profile);
+
+    // Per-call location scope for EVERY Profile RPC. The generated client
+    // forwards caller-supplied routing verbatim, and the live-verified routing
+    // key is the `x-opencode-directory` request header: an
+    // `opencode api ... -H 'x-opencode-directory: %2Ftmp'` call is served by
+    // the /tmp instance while an un-scoped one is served by the default
+    // instance. The client's typed `location?: { directory }` option was
+    // verified to serialize instead to the `location[directory]` QUERY PARAM -
+    // a different shape from the verified header - so it is deliberately NOT
+    // sent; the header is. Unknown TUI directory -> undefined -> today's
+    // un-scoped call.
+    function rpcOptions():
+      | { headers: { "x-opencode-directory": string } }
+      | undefined {
+      const directory = context.location?.directory;
+      if (typeof directory !== "string" || !directory) return undefined;
+      return {
+        headers: { "x-opencode-directory": encodeURIComponent(directory) },
+      };
+    }
+
+    // Best-effort refresh of the TUI's own per-location agent-model cache. The
+    // core TUI derives each new session's model from this cache, which it
+    // refreshes only on an `agent.updated` event that carries a location; the
+    // profile transform's events carry none, so without this a switch leaves
+    // the TUI serving stale models to newly created sessions. Never throws.
+    async function refreshAgentCache(): Promise<void> {
+      try {
+        const directory = context.location?.directory;
+        if (typeof directory !== "string" || !directory) return;
+        const collection = context.data?.location?.agent;
+        if (!collection) return;
+        collection.invalidate({ directory });
+        await collection.sync({ directory });
+      } catch (err) {
+        degrade("agent cache refresh", err);
+      }
+    }
+
+    // Stable claim id for THIS plugin load (one TUI window): random ASCII
+    // matching the server's window schema ^[A-Za-z0-9_-]{1,64}$. crypto is the
+    // preferred entropy source; the fallback is still ASCII and unique enough
+    // for a single process.
+    const windowID = (() => {
+      try {
+        const id = crypto.randomUUID().replace(/-/g, "");
+        if (/^[A-Za-z0-9_-]{1,64}$/.test(id)) return id;
+      } catch {
+        // fall through to the entropy fallback
+      }
+      let id = "";
+      for (let index = 0; index < 32; index++) {
+        id += Math.floor(Math.random() * 36).toString(36);
+      }
+      return id;
+    })();
+
+    // Candidate session ids for this window's claim. The open session tabs are
+    // authoritative; when tabs are disabled or the tab read fails, fall back
+    // to the reactive data store's session list (best-effort), keeping only
+    // sessions that live in this TUI's own directory when that is known.
+    // Throws only when NEITHER source is readable - the caller then skips the
+    // populate rather than sending an empty list, which would drop live
+    // claims.
+    function collectCandidateSessionIDs(
+      ownDirectory: string | undefined
+    ): string[] {
+      let tabsEnabled = false;
+      try {
+        tabsEnabled = context.ui.tabs.enabled();
+      } catch {
+        tabsEnabled = false;
+      }
+      if (tabsEnabled) {
+        try {
+          const ids: string[] = [];
+          for (const tab of context.ui.tabs.list()) {
+            if (typeof tab?.sessionID === "string") ids.push(tab.sessionID);
+          }
+          return ids;
+        } catch {
+          // The reactive fallback below covers an unreadable tab list.
+        }
+      }
+      const ids: string[] = [];
+      for (const info of context.data.session.list()) {
+        if (typeof info?.id !== "string") continue;
+        // The fallback source is the GLOBAL session list, not this window's
+        // tabs. When this TUI's directory is known, keep only sessions whose
+        // OWN location directory equals it; lenient when the session's own
+        // directory is unknown (accept). Unknown TUI directory -> the prior
+        // unfiltered behavior.
+        if (ownDirectory !== undefined) {
+          const sessionDirectory = info.location?.directory;
+          if (
+            typeof sessionDirectory === "string" &&
+            sessionDirectory !== ownDirectory
+          ) {
+            continue;
+          }
+        }
+        ids.push(info.id);
+      }
+      return ids;
+    }
+
+    // Claim only the sessions open as tabs in THIS window. Every call replaces
+    // this window's claim set on the server, so an empty list is a meaningful
+    // refresh that prunes sessions whose tabs closed. Returns true when a
+    // populate call was issued (even with zero entries); false when a
+    // transient failure prevented assembling a candidate list at all, in
+    // which case no populate is sent so live claims are not wiped. Never
+    // throws.
+    async function populateTracker(): Promise<boolean> {
+      try {
+        const directory = context.location?.directory;
+        const ownDirectory =
+          typeof directory === "string" && directory ? directory : undefined;
+        let candidateIDs: string[];
+        try {
+          candidateIDs = collectCandidateSessionIDs(ownDirectory);
+        } catch {
+          // Nothing was assembled: a spurious empty populate here would drop
+          // this window's live claims.
+          return false;
+        }
+        const entries: PopulateEntry[] = [];
+        const seen = new Set<string>();
+        for (const id of candidateIDs) {
+          if (entries.length >= 200) break;
+          if (seen.has(id)) continue;
+          seen.add(id);
+          try {
+            // One session.get per candidate resolves the authoritative
+            // agent/model/parentID/archived state.
+            const info = (await context.client.session.get({
+              sessionID: id,
+            })) as SessionInfoLike;
+            if (info?.time?.archived !== undefined) continue;
+            // Children never migrate: excluded from claiming.
+            if (typeof info.parentID === "string" && info.parentID) continue;
+            const model = serializeModel(info?.model);
+            if (model === undefined) continue;
+            const sessionDirectory = info?.location?.directory;
+            const entry: PopulateEntry = {
+              sessionID: id,
+              model,
+              window: windowID,
+            };
+            if (typeof info.agent === "string") entry.agent = info.agent;
+            // Stamp the SESSION's OWN directory so the server routes the seed
+            // to the instance that owns it; fall back to this TUI's directory
+            // only when the session's own location is unknown.
+            if (typeof sessionDirectory === "string" && sessionDirectory) {
+              entry.location = sessionDirectory;
+            } else if (ownDirectory !== undefined) {
+              entry.location = ownDirectory;
+            }
+            entries.push(entry);
+          } catch {
+            // skip this entry only
+          }
+        }
+        try {
+          // The populate input schema caps sessions at 200. Always carry the
+          // top-level window so even an empty refresh replaces this window's
+          // claim set (prunes closed tabs); the top-level location routes it to
+          // the instance owning this directory when the context knows it.
+          await rpc.populate(
+            {
+              sessions: entries.slice(0, 200),
+              window: windowID,
+              ...(ownDirectory !== undefined
+                ? { location: ownDirectory }
+                : {}),
+            },
+            rpcOptions()
+          );
+          return true;
+        } catch {
+          // populate is best-effort; never break setup
+          return false;
+        }
+      } catch {
+        // never throw out of populateTracker
+        return false;
+      }
+    }
+    void populateTracker();
+
+    try {
+      const current = (await rpc.current(
+        {},
+        rpcOptions()
+      )) as ProfileCurrentResult;
+      setActive(current.active);
+      setAgents(current.agents ?? []);
+      setTiers(current.tiers ?? []);
+      // A window opened while another window already switched (or launched
+      // with `oc <profile>`) starts with a stale cache; refresh it once here
+      // so its first new session sees the active profile's models.
+      void refreshAgentCache();
+    } catch (err) {
+      context.ui.toast.show({
+        message:
+          "profile-switcher: cannot read active profile: " + errorText(err),
+        variant: "error",
+      });
+    }
+
+    try {
+      const unsubscribe = rpc.events.on("changed", (event) => {
+        // Follow only switches originating from this window's location; a
+        // foreign window's switch must not update this sidebar. Lenient when
+        // this context has no directory.
+        const ownDirectory = context.location?.directory;
+        const eventDirectory = event.location?.directory;
+        // Lenient like the server's locationMismatch: skip only when BOTH
+        // sides name a directory and they differ; a directory-less event
+        // applies.
+        if (
+          ownDirectory !== undefined &&
+          eventDirectory !== undefined &&
+          eventDirectory !== ownDirectory
+        ) {
+          return;
+        }
+        const data = event.data as
+          | ProfileChangedEvent
+          | Readonly<Record<string, unknown>>;
+        if (data && typeof data.active === "string") {
+          setActive(data.active);
+        }
+        if (data && Array.isArray(data.agents)) {
+          setAgents(data.agents as ProfileAgentModelEntry[]);
+        }
+        if (data) {
+          // The tier table always follows the event's active profile: a
+          // profile without authored tiers clears it (legacy agent rows).
+          setTiers(
+            Array.isArray(data.tiers)
+              ? (data.tiers as ProfileTierModelEntry[])
+              : []
+          );
+        }
+        // A sibling window in the SAME location just switched; this window's
+        // TUI agent cache is equally stale, so refresh it too (fire-and-forget:
+        // the handler must not block the event bus).
+        void refreshAgentCache();
+      });
+      disposers.push(unsubscribe);
+    } catch (err) {
+      degrade("changed subscription", err);
+    }
+
+    async function switchTo(name: string): Promise<void> {
+      try {
+        // Fresh claims for this window right before the switch: migration is
+        // scoped to the sessions this window currently holds. Best effort.
+        await populateTracker();
+        const result = (await rpc.set(
+          { name },
+          rpcOptions()
+        )) as ProfileSetResult;
+        // Apply the result immediately: the location-stamped "changed" event
+        // may be filtered or lost, and this window's sidebar must still show
+        // the switch. The agent list follows from a background refresh.
+        setActive(result.active);
+        // The server registry now carries the new models; refresh this TUI's
+        // stale per-location agent cache so the next prompt-created session
+        // already sees them. Awaited so it lands before the user's next prompt
+        // is likely to create a session.
+        await refreshAgentCache();
+        void (async () => {
+          try {
+            const current = (await rpc.current(
+              {},
+              rpcOptions()
+            )) as ProfileCurrentResult;
+            setActive(current.active);
+            setAgents(current.agents ?? []);
+            setTiers(current.tiers ?? []);
+          } catch {
+            // background refresh is best-effort
+          }
+        })();
+        let message = "Profile switched: " + result.active;
+        const fallbacks = result.applied.filter((entry) => entry.fallback);
+        if (fallbacks.length > 0) {
+          message +=
+            " (fallback: " +
+            fallbacks
+              .map((entry) => entry.agent + " -> " + entry.model)
+              .join(", ") +
+            ")";
+        }
+        if (result.warnings.length > 0) {
+          message += "; warnings: " + result.warnings.join("; ");
+        }
+        context.ui.toast.show({
+          message,
+          variant: result.warnings.length > 0 ? "warning" : "success",
+        });
+      } catch (err) {
+        context.ui.toast.show({
+          message: "Profile switch failed: " + errorText(err),
+          variant: "error",
+        });
+      }
+    }
+
+    function registerKeymapLayer(): void {
+      if (keymapRegistered) return;
+      try {
+        context.keymap.layer(() => ({
+          mode: "global",
+          commands: [
+            {
+              id: "profile-switcher.switch",
+              title: "Switch opencode profile",
+              group: "Profile",
+              palette: true,
+              slash: { name: "profile", arguments: true },
+              run: async (input) => {
+                const argument = (input ?? "").trim();
+                if (argument) {
+                  await switchTo(argument);
+                  return;
+                }
+                try {
+                  const list = (await rpc.list(
+                    {},
+                    rpcOptions()
+                  )) as ProfileListResult;
+                  const choice = await context.ui.dialog.select({
+                    title: "Switch profile",
+                    current: list.active,
+                    options: list.profiles.map((entry) => ({
+                      title: entry.name,
+                      value: entry.name,
+                    })),
+                  });
+                  if (choice === undefined) return;
+                  await switchTo(choice);
+                } catch (err) {
+                  context.ui.toast.show({
+                    message: "Profile switch failed: " + errorText(err),
+                    variant: "error",
+                  });
+                }
+              },
+            },
+          ],
+        }));
+        keymapRegistered = true;
+      } catch (err) {
+        degrade("/profile command", err);
+      }
+    }
+
+    // Reactive re-claim: the always-mounted app slot observes the open-tab id
+    // set and, when it changes, schedules a debounced fire-and-forget
+    // populateTracker() so opening/closing tabs immediately refreshes this
+    // window's claims. Registered once; the timer is cleaned up with the slot.
+    let tabsReclaimRegistered = false;
+    function registerTabsReclaim(): void {
+      if (tabsReclaimRegistered) return;
+      try {
+        let lastTabKey: string | undefined;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        createEffect(() => {
+          let tabKey = "";
+          try {
+            // Sorted join = a stable key over the open-tab id SET (tab order
+            // does not matter).
+            tabKey = context.ui.tabs
+              .list()
+              .map((tab) => tab.sessionID)
+              .sort()
+              .join("\n");
+          } catch {
+            tabKey = "";
+          }
+          if (lastTabKey === undefined) {
+            // First reactive read: the initial populateTracker() already ran
+            // during setup, so only later changes schedule a re-claim.
+            lastTabKey = tabKey;
+            return;
+          }
+          if (tabKey === lastTabKey) return;
+          lastTabKey = tabKey;
+          if (timer !== undefined) clearTimeout(timer);
+          timer = setTimeout(() => {
+            timer = undefined;
+            void populateTracker();
+          }, TAB_RECLAIM_DEBOUNCE_MS);
+        });
+        disposers.push(() => {
+          if (timer !== undefined) clearTimeout(timer);
+          timer = undefined;
+        });
+        tabsReclaimRegistered = true;
+      } catch (err) {
+        degrade("tab reclaim effect", err);
+      }
+    }
+
+    // The always-mounted app slot exists only to run our component body:
+    // onMount fires inside the hosted component tree where the keymap
+    // provider IS in scope, so the layer can be registered there. The same
+    // component registers the reactive open-tab reclaim effect.
+    try {
+      const removeKeymapSlot = context.ui.slot({
+        append: "app",
+        render: () => {
+          registerTabsReclaim();
+          onMount(() => registerKeymapLayer());
+          return null;
+        },
+      });
+      disposers.push(removeKeymapSlot);
+    } catch (err) {
+      degrade("keymap bootstrap slot", err);
+    }
+
+    // Collapsible sidebar section: header "Profile: <active> (n)" with an
+    // arrow, and (when expanded) either the active profile's authored tiers as
+    // muted "<tier>  <model>" rows (tiers.json), or - for a profile that authors
+    // no readable tier table - one muted "<agent>  <model>" row per agent
+    // (legacy fallback). Storage key "sidebar", default collapsed, durable.
+    // With no known agents it degrades to the original static
+    // "Profile: <active>" line.
+    function ProfileSection() {
+      const [view, updateView] = context.storage.store("sidebar", {
+        initial: { open: false },
+      });
+      // Measured width of this section inside the sidebar.content slot,
+      // updated by the root box's onSizeChange and seeded once from the ref on
+      // mount. 37 (the v2.3.2 slot width) until the first real measurement.
+      const [width, setWidth] = createSignal(SIDEBAR_WIDTH_FALLBACK);
+      let rootBox: BoxRenderable | undefined;
+      onMount(() => {
+        // The layout is resolved by mount time; onSizeChange covers later
+        // resizes. A zero width keeps the 37-column fallback.
+        const measured = rootBox?.width;
+        if (typeof measured === "number" && measured > 0) setWidth(measured);
+      });
+      // Each tier/agent row is a 2-column bullet plus a bold label plus the
+      // muted model, indented by one 2-column gap after the bullet. The model
+      // is truncated to the columns left over, so the label always stays
+      // visible and the row never exceeds the measured width.
+      function modelWidth(label: string): number {
+        return Math.max(
+          0,
+          usableWidth(width()) - 2 - label.length - 2
+        );
+      }
+      return (
+        <Show
+          when={agents().length > 0}
+          fallback={
+            <text fg={context.theme.text.base} wrapMode="none" truncate>
+              Profile: {active()}
+            </text>
+          }
+        >
+          <box
+            ref={(el) => {
+              rootBox = el;
+            }}
+            onSizeChange={function () {
+              // The handler runs with `this` bound to the renderable, so the
+              // freshly laid-out width is read here (a stale width would let a
+              // row wrap and push the next row down).
+              const measured = this.width;
+              if (typeof measured === "number" && measured > 0) {
+                setWidth(measured);
+              }
+            }}
+          >
+            <box
+              flexDirection="row"
+              gap={1}
+              onMouseDown={() => {
+                try {
+                  void updateView((draft) => {
+                    draft.open = !draft.open;
+                  });
+                } catch {
+                  // toggle is best-effort: never break the sidebar
+                }
+              }}
+            >
+              <text fg={context.theme.text.base} wrapMode="none" truncate>
+                {view.open ? "\u25bc" : "\u25b6"}
+              </text>
+              <text fg={context.theme.text.base} wrapMode="none" truncate>
+                <b>
+                  {"Profile: " +
+                    active() +
+                    " (" +
+                    (tiers().length > 0 ? tiers().length : agents().length) +
+                    ")"}
+                </b>
+              </text>
+            </box>
+            <Show when={view.open}>
+              <Show
+                when={tiers().length > 0}
+                fallback={
+                  <For each={agents()}>
+                    {(entry) => (
+                      <box flexDirection="row">
+                        <text
+                          fg={context.theme.text.muted}
+                          wrapMode="none"
+                          truncate
+                        >
+                          {"- "}
+                        </text>
+                        <text
+                          fg={context.theme.text.base}
+                          wrapMode="none"
+                          truncate
+                        >
+                          <b>{entry.agent}</b>
+                        </text>
+                        <text
+                          fg={context.theme.text.muted}
+                          wrapMode="none"
+                          truncate
+                        >
+                          {"  " +
+                            truncate(entry.model, modelWidth(entry.agent))}
+                        </text>
+                      </box>
+                    )}
+                  </For>
+                }
+              >
+                <For each={tiers()}>
+                  {(entry) => (
+                    <box flexDirection="row">
+                      <text
+                        fg={context.theme.text.muted}
+                        wrapMode="none"
+                        truncate
+                      >
+                        {"- "}
+                      </text>
+                      <text
+                        fg={context.theme.text.base}
+                        wrapMode="none"
+                        truncate
+                      >
+                        <b>{entry.tier}</b>
+                      </text>
+                      <text
+                        fg={context.theme.text.muted}
+                        wrapMode="none"
+                        truncate
+                      >
+                        {"  " +
+                          truncate(entry.model, modelWidth(entry.tier))}
+                      </text>
+                    </box>
+                  )}
+                </For>
+              </Show>
+            </Show>
+          </box>
+        </Show>
+      );
+    }
+
+    try {
+      const removeSlot = context.ui.slot({
+        append: "sidebar.content",
+        render: () => <ProfileSection />,
+      });
+      disposers.push(removeSlot);
+    } catch (err) {
+      degrade("sidebar slot", err);
+    }
+
+    // The home.footer slot is session-less, so it is a passive,
+    // name-only reminder of the active profile on the startup/home screen:
+    // a static "Profile: <active>" line, with no agent list and no
+    // expand/collapse. Sessions get the full detail view in the sidebar
+    // (sidebar.content / ProfileSection), which shares its own expand state;
+    // this slot must not claim that storage or toggle state. Registered and
+    // degraded independently so a failure here never breaks the sidebar claim
+    // above.
+    try {
+      const removeHomeSlot = context.ui.slot({
+        append: "home.footer",
+        render: () => (
+          <text fg={context.theme.text.base}>Profile: {active()}</text>
+        ),
+      });
+      disposers.push(removeHomeSlot);
+    } catch (err) {
+      degrade("home footer slot", err);
+    }
+
+    // No post-setup "not registered" warning here: keymap registration is
+    // deferred to this slot's onMount (see above), so at setup time the flag
+    // is legitimately still false; a failure is reported by degrade() from
+    // registerKeymapLayer's own try/catch.
+
+    return () => {
+      // Best-effort final claim refresh for this window id: zero sessions with
+      // this window id and (when known) this directory, so a closed/reloaded
+      // window stops holding claims. Fire-and-forget: never awaited, never
+      // throws.
+      const directory = context.location?.directory;
+      try {
+        void rpc
+          .populate(
+            {
+              sessions: [],
+              window: windowID,
+              ...(typeof directory === "string" && directory
+                ? { location: directory }
+                : {}),
+            },
+            rpcOptions()
+          )
+          .catch(() => {
+            // cleanup must never reject
+          });
+      } catch {
+        // never break cleanup
+      }
+      for (const dispose of disposers) {
+        try {
+          dispose();
+        } catch {
+          // best-effort cleanup
+        }
+      }
+    };
+  },
+});

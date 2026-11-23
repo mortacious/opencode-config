@@ -1,0 +1,27 @@
+{
+  "tiers": {
+    "big": {
+      "model": "Amenable Thor 1/qwen38-flash-next",
+      "description": "hard reasoning, architecture and novel design, and the final whole-branch review"
+    },
+    "medium": {
+      "model": "Amenable Thor 1/qwen38-flash-next",
+      "description": "default implementation, per-task review, and research synthesis"
+    },
+    "small": {
+      "model": "Amenable Thor 1/qwen38-flash-next",
+      "description": "mechanical single-file edits, lint fixes, and boilerplate"
+    },
+    "vision": {
+      "model": "Amenable Thor 1/qwen38-flash-next",
+      "description": "image, screenshot, diagram, and visual PDF inspection; requires a vision-capable model"
+    }
+  },
+  "agents": {
+    "orchestrator": "big",
+    "sidekick": "medium",
+    "analyst": "medium",
+    "reviewer": "medium",
+    "title": "small"
+  }
+}

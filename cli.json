@@ -1,0 +1,14 @@
+{
+  "theme": {
+    "name": "catppuccin"
+  },
+  "session": {
+    "scrollbar": true
+  },
+  "tabs": {
+    "layout": "horizontal"
+  },
+  "scroll": {
+    "acceleration": true
+  }
+}

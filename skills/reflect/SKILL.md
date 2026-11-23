@@ -1,36 +1,43 @@
 ---
 name: reflect
-description: Review recent work, find repeated workflow patterns, and suggest reusable skills, agents, commands, config changes, or playbooks. Use when the user asks to learn from past sessions, improve recurring workflows, or identify what should be turned into reusable agent instructions.
+description: Use when the user asks to learn from past sessions, improve a recurring workflow, review whether a repeated process should become a reusable skill or knowledge note, or identify what should be turned into reusable agent instructions in this config repo. Do not use for one-off debugging, broad architecture review, or speculative agent creation without workflow evidence.
 ---
 
 # Reflect
 
-Reflect is an orchestrator-only workflow for learning from repeated work. It
-looks back over recent sessions, project notes, and existing agent assets, then
-recommends the smallest useful improvement: a skill, custom agent, command,
-configuration change, prompt rule, documentation playbook, or no change.
+## Overview
 
-The goal is to identify real repeated friction and suggest practical improvements with evidence.
+Reflect is a learning workflow: look back over recent sessions and the assets that shape them, find friction that actually repeated, and recommend the smallest useful fix. The repo is the agent runtime, so every output is a change to config, an agent prompt, a skill, or a knowledge note - or a deliberate decision to change nothing.
 
 ## When to Use
 
 Use Reflect when the user asks to:
 
-- run `/reflect` or `/reflect <focus>`;
 - learn from recent sessions or repeated workflows;
 - find work they keep doing manually;
-- improve their oh-my-opencode-slim setup based on actual usage using oh-my-opencode-slim skill;
-- review whether a recurring process should become a reusable playbook;
-- turn repeated workflow friction into a safer future default.
+- review whether a recurring process should become a reusable skill or playbook;
+- turn repeated workflow friction into a safer future default;
+- audit this config repo against how it is actually used.
 
-Do not use Reflect for ordinary implementation work, one-off debugging, broad
-architecture review, or speculative agent creation without workflow evidence.
+Do not use Reflect for ordinary implementation work, one-off debugging, broad architecture review, or speculative agent creation without workflow evidence.
+
+## Evidence Sources
+
+Use available evidence in this order:
+
+1. Current conversation and explicit user instructions.
+2. Repo guidance: `AGENTS.md`, `README.md`, and any project-local `AGENTS.md` in a workspace under review.
+3. Existing assets: `agents/*.md`, `skills/*/SKILL.md`, `command/*.md`, `opencode.jsonc` (agent models, permissions, MCP servers), `profiles/`, `plugin-src/`, `knowledge/`.
+4. Recent opencode sessions: session storage under `~/.local/share/opencode/` - the SQLite database `opencode.db` (tables including `session`, `message`, `part`) and the `storage/session_diff/` directory. Read only when available and safe to inspect.
+5. External docs only when the proposal depends on a third-party tool or library whose behavior needs confirmation.
+
+Non-code workspaces count as evidence too: paper drafts, notebooks, experiment configs, dataset cards, lab notes, and analysis scripts show the workflow even when there is no build or test suite to run.
+
+Respect privacy and safety boundaries. Do not inspect unrelated personal files, credentials, private messages, or external accounts unless the user explicitly asks and the workflow requires it. `opencode.jsonc` contains secrets in some provider blocks - never copy a key into a proposal, a commit message, or a summary.
 
 ## Core Contract
 
-Reflect must be conservative and evidence-driven.
-
-Required behavior:
+Reflect must be conservative and evidence-driven:
 
 - inspect existing assets before suggesting new ones;
 - prefer recent, repeated, user-visible friction over isolated incidents;
@@ -38,84 +45,49 @@ Required behavior:
 - treat "create nothing" as a successful result when evidence is weak;
 - ask before changing prompts, skills, commands, agents, MCP access, or config;
 - avoid duplicating existing assets;
-- explain restart requirements for OpenCode config, prompt, agent, skill, MCP, or
-  plugin changes.
-
-## Evidence Sources
-
-Use available evidence in this order:
-
-1. Current conversation and explicit user instructions.
-2. Project-local guidance and memories, such as `AGENTS.md`, `.opencode/`,
-   `.slim/`, notes, checkpoints, task progress files, and codemaps.
-3. Existing skills, commands, agents, prompt overrides, MCP permissions, and
-   oh-my-opencode-slim configuration.
-4. Recent OpenCode logs or session artifacts if they are available and safe to
-   inspect.
-5. External docs only when a proposed workflow depends on a third-party tool or
-   library whose behavior needs confirmation.
-
-Respect privacy and safety boundaries. Do not inspect unrelated personal files,
-credentials, private messages, or external accounts unless the user explicitly
-asks and the workflow requires it.
+- explain restart requirements for opencode config, prompt, agent, skill, MCP, or plugin changes.
 
 ## Workflow
 
-Reflect can be triggered directly:
-
-```text
-/reflect
-/reflect release workflow and checks
-```
-
-With no arguments, review recent work broadly. With arguments, focus the review
-on that workflow area while still checking whether existing assets already cover
-it.
-
-### 1. Inventory Existing Assets
+### 1. Inventory existing assets
 
 Before proposing anything, identify what already exists:
 
-- bundled and user-installed skills;
-- custom agents and their `orchestratorPrompt` guidance;
-- custom commands;
-- prompt overrides and append files;
-- active oh-my-opencode-slim preset, model routing, skills, and MCP permissions;
-- project playbooks, docs, codemaps, and local workflow notes.
+- skills under `skills/` - skills are advertised to every agent by default and loaded with the `skill` tool;
+- agent prompts and their permission blocks;
+- commands under `command/`;
+- model routing and profile overlays in `opencode.jsonc` and `profiles/`;
+- knowledge notes under `knowledge/`;
+- plugin behavior under `plugin-src/`.
 
-If an existing asset already covers the candidate, recommend extending or using
-that asset instead of creating a near-duplicate.
+If an existing asset already covers the candidate, recommend extending it instead of creating a near-duplicate.
 
-### 2. Find Repeated Workflow Patterns
+### 2. Find repeated workflow patterns
 
 Look for repeated signals such as:
 
-- the same command sequence appears across sessions;
-- the user repeatedly asks for the same review, setup, release, or debugging
-  process;
-- the same manual research or context-gathering steps keep recurring;
-- the same specialist routing decision is repeatedly needed;
-- the same project-specific rule is repeatedly re-explained;
-- repeated failures happen because an agent lacks a stable instruction, tool, or
-  permission boundary.
+- the same command sequence appearing across sessions;
+- the user repeatedly asking for the same review, setup, release, or debugging process;
+- the same manual research or context-gathering steps recurring;
+- the same specialist routing decision being needed again and again;
+- the same repo-specific rule being re-explained;
+- repeated failures caused by an agent lacking a stable instruction, tool, or permission boundary.
 
-Strong candidates usually have at least two occurrences, stable inputs, a clear
-output, and a clear stopping condition.
+Strong candidates usually have at least two occurrences, stable inputs, a clear output, and a clear stopping condition.
 
-### 3. Score Candidates
+### 3. Score candidates
 
 For each candidate, decide:
 
-- **Frequency:** How often has it happened?
-- **Cost:** Does it waste meaningful time, context, money, or attention?
-- **Risk:** Does inconsistent execution cause bugs, regressions, bad decisions,
-  or unsafe changes?
-- **Stability:** Are the inputs and desired output predictable?
-- **Coverage:** Is there already an asset that handles it well?
+- **Frequency:** how often has it happened?
+- **Cost:** does it waste meaningful time, context, money, or attention?
+- **Risk:** does inconsistent execution cause bugs, regressions, bad decisions, or unsafe changes?
+- **Stability:** are the inputs and desired output predictable?
+- **Coverage:** is there already an asset that handles it well?
 
 Only recommend creating or changing assets when confidence is high.
 
-### 4. Choose the Smallest Useful Form
+### 4. Choose the smallest useful form
 
 Pick the least powerful form that solves the repeated problem:
 
@@ -124,25 +96,21 @@ Pick the least powerful form that solves the repeated problem:
 - **Command:** a repeatable manual trigger with stable inputs.
 - **Custom agent:** a distinct specialist lane with clear delegation rules.
 - **MCP/tool permission change:** a safe access adjustment for an existing agent.
-- **Project playbook/doc:** human-readable process guidance when automation is too
-  heavy.
+- **Knowledge note:** human-readable reference for facts an agent needs on demand - an experiment protocol, an analysis checklist, a dataset card, or a schema an agent should consult instead of re-deriving.
 - **Skip:** weak, one-off, ambiguous, sensitive, or already-covered work.
 
-Avoid creating custom agents when a prompt rule or skill is enough. Avoid skills
-when a short project playbook is enough. Avoid config changes when the benefit is
-unclear.
+Avoid creating custom agents when a prompt rule or skill is enough. Avoid skills when a short knowledge note is enough. Avoid config changes when the benefit is unclear.
 
-### 5. Propose Before Changing
+### 5. Propose before changing
 
-Unless the user explicitly requested a specific edit, present a concise proposal
-before writing files or changing config:
+Unless the user explicitly requested a specific edit, present a concise proposal before writing files or changing config:
 
 ```text
 Found 2 strong repeated workflows and 1 weak candidate.
 
 Recommended:
-- Add a small orchestrator prompt rule for <workflow> because <evidence>.
-- Extend existing <skill> instead of creating a new one because <overlap>.
+- Add a small prompt rule to agents/<name>.md for <workflow> because <evidence>.
+- Extend existing skill <name> instead of creating a new one because <overlap>.
 
 Skip:
 - <candidate> because it only appeared once.
@@ -150,8 +118,7 @@ Skip:
 Proceed with the proposed edits?
 ```
 
-When applying changes, preserve existing user settings and prefer narrow,
-append-only edits.
+When applying changes, preserve existing user settings and prefer narrow, append-only edits.
 
 ## Output Format
 
@@ -183,11 +150,8 @@ yet.
 - Do not manufacture assets to justify the workflow.
 - Do not create overlapping skills or agents.
 - Do not silently change global config, prompts, or permissions.
-- Do not add broad instructions that make agents more eager, expensive, or
-  invasive without a clear benefit.
-- Do not overfit to a single session unless the user explicitly asks for that
-  exact reusable workflow.
+- Do not add broad instructions that make agents more eager, expensive, or invasive without a clear benefit.
+- Do not overfit to a single session unless the user explicitly asks for that exact reusable workflow.
 - Do not use private or sensitive material as examples in generated assets.
-- When config, prompt, agent, skill, MCP, or plugin files change, tell the user:
-  "This should apply on the next OpenCode run; restart OpenCode if you need it
-  immediately."
+- When config, prompt, agent, skill, MCP, or plugin files change, tell the user: "This applies on the next opencode run; restart opencode if you need it immediately."
+- ASCII only in all text written to this repo.

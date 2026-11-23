@@ -12,6 +12,14 @@ SECRETS_DIR="$CONFIG_DIR/secrets"
 
 echo "=== opencode config bootstrap ==="
 
+# --- opencode version gate ---
+# The context plugin pinned in opencode.jsonc (opencode-dcp@2.0.5) targets the
+# opencode 2.3 API line, so anything older is unsupported. Abort before any
+# install work. Escape hatch (unsupported): SKIP_OPENCODE_VERSION_CHECK=1.
+if [ "${SKIP_OPENCODE_VERSION_CHECK:-0}" != "1" ]; then
+  "$CONFIG_DIR/scripts/check-opencode-version.sh" --quiet
+fi
+
 # --- codegraph (MCP server dependency) ---
 # The codegraph binary must be on PATH for the codegraph MCP server to work.
 # This script does NOT install it - install it yourself via your package manager
@@ -26,6 +34,20 @@ fi
 
 mkdir -p "$BIN_DIR"
 mkdir -p "$SECRETS_DIR"
+
+# --- LAN provider secrets ({file:} placeholders) ---
+# opencode.jsonc reads the Amenable Thor 1 provider's baseURL and apiKey via
+# {file:secrets/lan_base_url} and {file:secrets/lan_api_key}. A missing file
+# hard-fails opencode startup, so create empty placeholders (mode 600) when
+# absent. Real values are machine-local and must be provisioned by hand on
+# each machine (never committed, never echoed here); an existing file is
+# never overwritten.
+for secret in lan_base_url lan_api_key; do
+  if [ ! -f "$SECRETS_DIR/$secret" ]; then
+    : > "$SECRETS_DIR/$secret"
+    chmod 600 "$SECRETS_DIR/$secret"
+  fi
+done
 
 # --- github-mcp-server (official GitHub MCP; used by sparring + research) ---
 # Self-contained: the binary lives in ./bin/. opencode.jsonc references it via
@@ -148,7 +170,8 @@ else
   fi
   # NOTE: sourcegraph-mcp is NOT auto-installed. It is disabled in opencode.jsonc
   # because akbad/sourcegraph-mcp only supports HTTP/SSE transports (no stdio).
-  # See AGENTS.md and knowledge/web-search-modules/research-apis.md for manual setup.
+  # See AGENTS.md and skills/fusion-research-methodology/references/tool-matrix.md
+  # for manual setup.
 fi
 
 # --- research-API secrets ({file:} placeholders) ---
@@ -167,15 +190,88 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
-# --- local deps (plugin authoring; @opencode-ai/plugin) ---
+# --- local deps (plugin authoring; @opencode-ai/plugin, @opencode/plugin) ---
 # Installs to ./node_modules in this config dir. Nothing global.
 echo "Running npm install (local deps only, no -g)..."
 npm install --no-audit --no-fund
 
+# --- fusion-audit plugin package (plugin-src/fusion-audit) ---
+# Registered in opencode.jsonc "plugins" as "./plugin-src/fusion-audit". It is a
+# local plugin package with its own dependency (@opencode/plugin), resolved from
+# its own node_modules - so it needs its own install step here.
+echo "Installing fusion-audit plugin deps (plugin-src/fusion-audit)..."
+if ! ( cd "$CONFIG_DIR/plugin-src/fusion-audit" && npm install --no-audit --no-fund ); then
+  echo "WARNING: failed to install fusion-audit plugin deps; the plugin will not load." >&2
+else
+  echo "OK: fusion-audit plugin deps installed."
+fi
+
+# --- fusion-bootstrap plugin package (plugin-src/fusion-bootstrap) ---
+# Registered in opencode.jsonc "plugins" as "./plugin-src/fusion-bootstrap". It
+# is a local plugin package with its own dependency (@opencode/plugin),
+# resolved from its own node_modules - so it needs its own install step here.
+echo "Installing fusion-bootstrap plugin deps (plugin-src/fusion-bootstrap)..."
+if ! ( cd "$CONFIG_DIR/plugin-src/fusion-bootstrap" && npm install --no-audit --no-fund ); then
+  echo "WARNING: failed to install fusion-bootstrap plugin deps; the plugin will not load." >&2
+else
+  echo "OK: fusion-bootstrap plugin deps installed."
+fi
+
+# --- fusion-channel plugin package (plugin-src/fusion-channel) ---
+# Registered in opencode.jsonc "plugins" as the plain string
+# "./plugin-src/fusion-channel". It is a local
+# plugin package with its own dependency (@opencode/plugin), resolved from
+# its own node_modules - so it needs its own install step here.
+echo "Installing fusion-channel plugin deps (plugin-src/fusion-channel)..."
+if ! ( cd "$CONFIG_DIR/plugin-src/fusion-channel" && npm install --no-audit --no-fund ); then
+  echo "WARNING: failed to install fusion-channel plugin deps; the plugin will not load." >&2
+else
+  echo "OK: fusion-channel plugin deps installed."
+fi
+
+# --- profile-switcher plugin package (plugin-src/profile-switcher) ---
+# Registered in opencode.jsonc "plugins" as the plain string
+# "./plugin-src/profile-switcher". It is a local plugin package with its own
+# dependencies (@opencode/plugin plus the
+# OpenTUI/solid peers for its ./tui entry), resolved from its own
+# node_modules - so it needs its own install step here.
+echo "Installing profile-switcher plugin deps (plugin-src/profile-switcher)..."
+if ! ( cd "$CONFIG_DIR/plugin-src/profile-switcher" && npm install --no-audit --no-fund ); then
+  echo "WARNING: failed to install profile-switcher plugin deps; the plugin will not load." >&2
+else
+  echo "OK: profile-switcher plugin deps installed."
+fi
+
+# --- subagent-view plugin package (plugin-src/subagent-view) ---
+# Registered in opencode.jsonc "plugins" as "./plugin-src/subagent-view". It is
+# a local plugin package with its own dependencies (@opencode/plugin plus the
+# OpenTUI/solid peers for its ./tui entry), resolved from its own node_modules -
+# so it needs its own install step here.
+echo "Installing subagent-view plugin deps (plugin-src/subagent-view)..."
+if ! ( cd "$CONFIG_DIR/plugin-src/subagent-view" && npm install --no-audit --no-fund ); then
+  echo "WARNING: failed to install subagent-view plugin deps; the plugin will not load." >&2
+else
+  echo "OK: subagent-view plugin deps installed."
+fi
+
+# --- subagent-cap plugin package (plugin-src/subagent-cap) ---
+# Registered in opencode.jsonc "plugins" as an object entry with options:
+# { "package": "./plugin-src/subagent-cap", options: {...} }. It is a local
+# plugin package with its own dependency (@opencode/plugin), resolved from its
+# own node_modules - so it needs its own install step here.
+echo "Installing subagent-cap plugin deps (plugin-src/subagent-cap)..."
+if ! ( cd "$CONFIG_DIR/plugin-src/subagent-cap" && npm install --no-audit --no-fund ); then
+  echo "WARNING: failed to install subagent-cap plugin deps; the plugin will not load." >&2
+else
+  echo "OK: subagent-cap plugin deps installed."
+fi
+
 # --- opencode plugins ---
-# Note: the plugins listed in opencode.jsonc "plugin" array (@tarquinen/opencode-dcp,
-# caveman-opencode-plugin) are resolved by opencode itself on first run - they do
-# not need to be pre-installed by this script.
+# Note: the npm-listed plugin in opencode.jsonc "plugins" array
+# (opencode-dcp@2.0.5) is resolved by opencode itself on first run - it does
+# not need to be pre-installed by this script. The local plugin package
+# plugin-src/fusion-audit in the same array gets its dependencies installed in
+# the step above.
 
 # --- provider API keys ---
 # The neuralwatt provider needs an API key available to opencode. opencode looks

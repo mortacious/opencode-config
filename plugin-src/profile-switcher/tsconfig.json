@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "target": "es2022",
+    "lib": ["es2022", "dom"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "@opentui/solid"
+  },
+  "include": ["index.ts", "tui.tsx", "rpc.ts", "parse.ts"]
+}

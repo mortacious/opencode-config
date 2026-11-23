@@ -1,13 +1,15 @@
 ---
 name: simplify
-description: Simplifies code for clarity without changing behavior. Use for readability, maintainability, and complexity reduction after behavior is understood.
+description: Use when simplifying working code for clarity without changing behavior - after a feature passes tests but feels heavier than needed, when review flags nesting or readability, or before consolidating duplication. Do not use when the code's behavior is not yet understood, when it is performance-sensitive and the clearer version would be slower, when the module is about to be rewritten, or for prose, papers, or analysis write-ups - this skill is code clarity only.
 ---
 
 # Code Simplification
 
 ## Overview
 
-Simplify code by reducing complexity while preserving exact behavior. The goal is not fewer lines — it's code that is easier to read, understand, modify, and debug. Every simplification must pass a simple test: "Would a new team member understand this faster than the original?"
+Simplify code by reducing complexity while preserving exact behavior. The goal is not fewer lines - it is code that is easier to read, understand, modify, and debug. Every simplification must pass a simple test: "Would a new team member understand this faster than the original?"
+
+Scope: code clarity only. Prose, papers, reports, figures, and analysis narratives are out of scope here - their clarity problems need an editorial pass, not a refactor.
 
 ## When to Use
 
@@ -20,16 +22,17 @@ Simplify code by reducing complexity while preserving exact behavior. The goal i
 
 **When NOT to use:**
 
-- Code is already clean and readable — don't simplify for the sake of it
-- You don't understand what the code does yet — comprehend before you simplify
-- The code is performance-critical and the "simpler" version would be measurably slower
-- You're about to rewrite the module entirely — simplifying throwaway code wastes effort
+- Code is already clean and readable - don't simplify for the sake of it
+- You don't understand what the code does yet - comprehend before you simplify
+- The code is performance-sensitive and the "simpler" version would be measurably slower
+- You're about to rewrite the module entirely - simplifying throwaway code wastes effort
+- The artifact is prose, a paper section, a figure, or an analysis narrative - this skill is code clarity only
 
 ## The Five Principles
 
 ### 1. Preserve Behavior Exactly
 
-Don't change what the code does — only how it expresses it. All inputs, outputs, side effects, error behavior, and edge cases must remain identical. If you're not sure a simplification preserves behavior, don't make it.
+Don't change what the code does - only how it expresses it. All inputs, outputs, side effects, error behavior, and edge cases must remain identical. If you're not sure a simplification preserves behavior, don't make it.
 
 Before every change, ask:
 
@@ -48,7 +51,7 @@ Before simplifying:
 2. Study how neighboring code handles similar patterns
 3. Match the project's style for imports, naming, function style, error handling, and type annotations
 
-Simplification that breaks project consistency is not simplification — it's churn.
+Simplification that breaks project consistency is not simplification - it is churn.
 
 ### 3. Prefer Clarity Over Cleverness
 
@@ -121,13 +124,6 @@ After simplifying, confirm:
 - The diff is clean and reviewable
 - Project conventions still match
 - No behavior, error handling, or side effects changed
-
-## Guidance for This Repository
-
-- Prefer straightforward TypeScript over clever compression
-- Preserve existing runtime behavior, tests, and hooks
-- Favor explicit names and smaller focused helpers when they improve readability
-- Keep refactors tightly scoped to the task or review feedback
 
 ## Verification Checklist
 

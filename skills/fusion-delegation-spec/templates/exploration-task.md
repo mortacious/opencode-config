@@ -1,0 +1,77 @@
+# Exploration Task Template
+
+Copy this into a `subagent` delegation to analyst for codebase exploration. Every section is required: fill it, or write "none" with a reason. Delete the guidance italic lines before sending.
+
+## Objective
+
+<!-- The question about the codebase, in one or two sentences. State what decision the answer feeds. -->
+
+_Map <area> so that <decision> can be made._
+
+## Files
+
+<!-- Where to start and where not to waste time. Exact paths when known; directory hints when not. Analyst reads, never edits. -->
+
+- Start at: `path/to/dir-or-file`
+- Likely relevant: `path/to/file`
+- Ignore: `generated/`, `vendored/`
+- Report paths as `path:line` for every claim.
+
+## Interfaces
+
+<!-- The symbols, entry points, or boundaries the answer must cover: functions, types, config keys, module boundaries, call paths. -->
+
+- Symbols or areas to cover: `<symbol>`, `<symbol>`
+- Call path needed: <e.g. "request handler -> service -> store">
+- What to report per symbol: file, signature, one-line role, and its callers when relevant.
+
+## Constraints
+
+<!-- Search boundaries, read-only rules, and what not to do. -->
+
+- Read-only: do not edit, create, or delete files.
+- Grep and glob skip gitignored paths; if an ignored area matters, read explicit paths and say the answer rests on that.
+- Do not redesign or recommend changes - report what exists.
+
+## Verification
+
+<!-- How the analyst confirms the answer is complete rather than a lucky hit. -->
+
+- Every claimed location was opened and read, not inferred from a filename.
+- Every call edge reported was confirmed in the source.
+- State which searches were run when the answer depends on absence of matches.
+
+## Skills to load
+
+<!-- Skill names the analyst must load before starting. -->
+
+- none
+
+## Model tier
+
+<!-- REQUIRED: one of the tier names from the injected tier table (default: this agent's tier). Name a tier only from that table. -->
+
+- Tier: one of the tier names from the injected tier table (default: this agent's tier)
+- Model override: `<provider>/<model>` from the injected table, or "none - default"
+
+## Report contract
+
+<!-- What the analyst must return. -->
+
+Condensed report - this is input for an expensive orchestrator; no bulk output.
+
+- **SKILLS**: comma-separated ids of the skills you loaded before starting, or "none" (usually "none" - skill loads are not part of exploration)
+- **STATUS**: complete | partial | blocked
+- **FINDINGS**: the answer first, then the map - max 10 bullets, each with a citation or `path:line` location; one line per role
+- **VERIFIED**: what was read or run to confirm, separated from inference
+- **GAPS**: what was not covered within the asked scope and why, or "none" - max 5
+
+## Stop conditions
+
+<!-- Stop and escalate instead of guessing when any of these is true. -->
+
+- The requested area does not exist under the given paths - report where the search was run.
+- The question requires running code or tests (outside the read-only analyst role).
+- Two files disagree about the contract and no single answer is possible.
+- The asked scope cannot be covered within reasonable effort - report the partial map.
+- The work outgrows the spec - more files, different files, or a concern the spec did not name. Stop and report partial instead of expanding scope silently.

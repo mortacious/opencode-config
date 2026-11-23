@@ -6,8 +6,6 @@
     "sidekick": { "model": "openrouter/deepseek/deepseek-v4.1-flash-1017#max" },
     "analyst": { "model": "openrouter/deepseek/deepseek-v4.1-flash-1017#max" },
     "reviewer": { "model": "openrouter/deepseek/deepseek-v4.1-flash-1017#max" },
-    "worker": { "model": "openrouter/deepseek/deepseek-v4.1-flash-1017#max" },
-    "advisor": { "model": "openrouter/deepseek/deepseek-v4.1-flash-1017#max" },
     "title": { "model": "openrouter/deepseek/deepseek-v4.1-flash-1017#max" }
   },
   "small_model": "openrouter/deepseek/deepseek-v4.1-flash-1017#max"

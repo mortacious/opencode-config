@@ -15,7 +15,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
-// Sink file, mirroring fusion-tools' private JSONL logger: Promise plugins in
+// Sink file, mirroring fusion-channel' private JSONL logger: Promise plugins in
 // v2 cannot reach the opencode log file (upstream anomalyco/opencode#27285),
 // so this file is the observable record. Best-effort: never throws, creates
 // the parent directory on demand.
@@ -23,7 +23,7 @@ const SINK_FILE = path.join(homedir(), ".local", "state", "opencode", "fusion-au
 let sinkDirReady = null; // last directory successfully created
 
 // Appends one JSON line to the sink; any I/O failure is swallowed so a log
-// write can never throw into a plugin hook. Mirrors fusion-tools/lib/log.js.
+// write can never throw into a plugin hook. Mirrors fusion-channel/lib/log.js.
 const appendSink = (record) => {
   let line;
   try {

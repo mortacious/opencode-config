@@ -2,7 +2,7 @@
 
 Judgment-heavy work stays with the primary. Route the doing to the specialist that fits. Each role below carries the positive and the negative case, because a wrong delegation costs a full round trip plus a lost decision.
 
-The roster is four capability shells plus the fanout worker: `sidekick` (execution), `analyst` (read-only generalist), `reviewer` (audit gate), and `worker` (fanout only, plugin-created - never dispatch it directly). Task-specific method lives in skills, not in agent files, so the task names the skill the shell must load.
+The roster is three capability shells: `sidekick` (execution), `analyst` (read-only generalist), and `reviewer` (audit gate). Task-specific method lives in skills, not in agent files, so the task names the skill the shell must load.
 
 ## sidekick - execution
 

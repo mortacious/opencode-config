@@ -6,8 +6,6 @@
     "sidekick": { "model": "Amenable Thor 1/qwen38-flash-next" },
     "analyst": { "model": "Amenable Thor 1/qwen38-flash-next" },
     "reviewer": { "model": "Amenable Thor 1/qwen38-flash-next" },
-    "worker": { "model": "Amenable Thor 1/qwen38-flash-next" },
-    "advisor": { "model": "Amenable Thor 1/qwen38-flash-next" },
     "title": { "model": "Amenable Thor 1/qwen38-flash-next" }
   },
   "small_model": "Amenable Thor 1/qwen38-flash-next"

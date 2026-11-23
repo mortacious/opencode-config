@@ -8,6 +8,12 @@ Copy this into a `subagent` delegation for sidekick. Every section is required: 
 
 _What changes, observed how._
 
+## Working directory
+
+<!-- REQUIRED: where the executor runs. Default is the current worktree (write "current worktree"). For an isolated-worktree task, name the explicit absolute path the orchestrator created with `git worktree add` and repeat it in the `subagent` call's `workdir` parameter. -->
+
+_Current worktree, or `/abs/path/to/worktree`._
+
 ## Files
 
 <!-- Exact paths to create and exact paths to modify, marked as such. Name files that must not change when scope is the risk. -->

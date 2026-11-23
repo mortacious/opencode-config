@@ -10,8 +10,6 @@
     "sidekick": "medium",
     "analyst": "medium",
     "reviewer": "medium",
-    "worker": "medium",
-    "advisor": "medium",
     "title": "small"
   }
 }

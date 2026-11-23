@@ -1,4 +1,4 @@
-// fusion-tools: steer module.
+// fusion-channel: steer module.
 //
 // Tracks subagent sessions per parent from session.created events (child
 // sessions carry parentID; both observed shapes - legacy properties.info
@@ -30,12 +30,10 @@
 // session record carries `time.busy` / `time.idle`, which wins when present.
 // If several children match by agent name and more than one is running, the
 // module refuses to guess and lists the candidate ids. Feedback asides carry
-// fusionTools metadata ("steer"), which the render self-filter drops from
-// advisor reviews.
+// fusionTools metadata ("steer") so a consumer can recognise them.
 //
 // State is in-memory per plugin generation (best-effort by design; a hot
-// reload restarts tracking). The module is independent of advisor.enabled:
-// it registers whenever the plugin loads.
+// reload restarts tracking). The module registers whenever the plugin loads.
 
 import {
   appendFileSync,
@@ -59,10 +57,10 @@ const DEFAULT_INBOX = path.join(
 );
 
 // Durable channel-log path. Test seams: createSteerModule({inboxPath}) wins,
-// else FUSION_TOOLS_INBOX_FILE (read lazily, like lib/log.js), else the live
+// else FUSION_CHANNEL_INBOX_FILE (read lazily, like lib/log.js), else the live
 // state file. Tests must never append to the live file.
 export function inboxFile() {
-  const override = process.env.FUSION_TOOLS_INBOX_FILE;
+  const override = process.env.FUSION_CHANNEL_INBOX_FILE;
   if (typeof override === "string" && override.trim()) return override;
   return DEFAULT_INBOX;
 }
@@ -236,7 +234,7 @@ export function createSteerModule({ ctx, inboxPath } = {}) {
         return;
       }
       if (event.type === "session.idle") {
-        // The idle event carries the sessionID flat (advisor code reads
+        // The idle event carries the sessionID flat (data.sessionID here;
         // data.sessionID; fusion-audit reads properties.sessionID) - not
         // nested under an info object like session.created.
         const props = event.properties;
@@ -266,8 +264,7 @@ export function createSteerModule({ ctx, inboxPath } = {}) {
     return Array.isArray(list) ? list.slice() : [];
   }
 
-  // Feedback aside for the parent. fusionTools metadata keeps it out of
-  // advisor transcript renders (render.js self-filter). Best-effort: a failed
+  // Feedback aside for the parent. Best-effort: a failed
   // aside is logged, never thrown.
   async function feedback(parentSessionID, text, description = "steer command") {
     try {

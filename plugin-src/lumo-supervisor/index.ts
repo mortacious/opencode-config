@@ -95,7 +95,7 @@ const STATE_DIR = join(homedir(), ".local", "state", "lumo-supervisor");
 const SERVER_LOG = join(STATE_DIR, "server.log");
 const PID_FILE = join(STATE_DIR, "lumo-supervisor.pid");
 // Private JSONL decision log. Promise plugins cannot reach the opencode log
-// file (upstream anomalyco/opencode#27285; see plugin-src/fusion-tools/lib/
+// file (upstream anomalyco/opencode#27285; see plugin-src/fusion-channel/lib/
 // log.js), so this file is the persisted, diagnosable record of every
 // decision: {ts, service, level, message, ...extra}. Created lazily on first
 // write. Never receives key material (length-only rule for apiKey).
@@ -111,11 +111,11 @@ const MODEL_SPECS: ReadonlyArray<{ id: string; name: string }> = [
 ];
 
 // Last directory successfully created for SUPERVISOR_LOG (mirrors
-// plugin-src/fusion-tools/lib/log.js: mkdir once, on demand).
+// plugin-src/fusion-channel/lib/log.js: mkdir once, on demand).
 let logDirReady = false;
 
 // Structured logging: console (promise plugins cannot reach the opencode log
-// file; see plugin-src/fusion-tools/lib/log.js) AND an appended JSONL line
+// file; see plugin-src/fusion-channel/lib/log.js) AND an appended JSONL line
 // in SUPERVISOR_LOG, created lazily (directory + file on first write).
 // Never throws, never prints secret values.
 function log(

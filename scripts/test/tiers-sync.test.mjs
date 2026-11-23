@@ -1,8 +1,8 @@
 // repo tooling tests: scripts/tiers-sync.mjs (profile model tiers -> overlays).
 //
-// These live under the fusion-tools test directory because `npm test` runs
-// `node --test plugin-src/fusion-tools/test/`; the module under test is the
-// repo-level tier expander, not a fusion-tools plugin module.
+// These live under the repo scripts/ test directory because `npm test` runs
+// `node --test scripts/test/`; the module under test is the repo-level tier
+// expander, not a plugin module.
 //
 // Coverage:
 //   1. expansion output shape (GENERATED header, $schema, agent pins,
@@ -12,7 +12,7 @@
 //   4. retargeting all four tiers re-pins every agent (the --swap-model tiers
 //      rewrite + resync; bin/oc performs the JSON edit itself with jq)
 //
-// Run: node --test plugin-src/fusion-tools/test/
+// Run: node --test scripts/test/
 
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
@@ -22,10 +22,10 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { GENERATED_HEADER, TIER_KEYS } from "../../../scripts/tiers-sync.mjs";
+import { GENERATED_HEADER, TIER_KEYS } from "../../scripts/tiers-sync.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(HERE, "..", "..", "..");
+const REPO_ROOT = path.resolve(HERE, "..", "..");
 const TOOL = path.join(REPO_ROOT, "scripts", "tiers-sync.mjs");
 const TMP_BASE = existsSync("/tmp/opencode") ? "/tmp/opencode" : os.tmpdir();
 
@@ -40,7 +40,7 @@ after(() => {
   }
 });
 
-const AGENT_FILES = ["orchestrator", "sidekick", "analyst", "reviewer", "worker"];
+const AGENT_FILES = ["orchestrator", "sidekick", "analyst", "reviewer"];
 
 const TIERS = {
   tiers: {
@@ -54,7 +54,6 @@ const TIERS = {
     sidekick: "medium",
     analyst: "medium",
     reviewer: "medium",
-    worker: "medium",
     title: "small",
   },
 };
@@ -109,7 +108,6 @@ test("expansion writes the generated overlay shape and re-sync is a no-op", () =
       sidekick: { model: "test-provider/medium-model" },
       analyst: { model: "test-provider/medium-model" },
       reviewer: { model: "test-provider/medium-model" },
-      worker: { model: "test-provider/medium-model" },
       title: { model: "test-provider/small-model" },
     },
     small_model: "test-provider/small-model",
@@ -131,13 +129,13 @@ test("--check passes when synced and fails with named drifts after an edit", () 
   assert.match(clean.stdout, /1 profile\(s\) checked, 0 drift\(s\)/);
 
   const { config } = readOverlay(root);
-  config.agents.worker.model = "test-provider/big-model#max";
+  config.agents.reviewer.model = "test-provider/big-model#max";
   config.small_model = "test-provider/big-model#max";
   writeFileSync(overlayPath(root), JSON.stringify(config, null, 2) + "\n");
 
   const drifted = run(root, ["--check", "--profile", "demo"]);
   assert.equal(drifted.status, 1);
-  assert.match(drifted.stderr, /DRIFT profiles\/demo\/opencode\.jsonc: agents\.worker\.model is/);
+  assert.match(drifted.stderr, /DRIFT profiles\/demo\/opencode\.jsonc: agents\.reviewer\.model is/);
   assert.match(drifted.stderr, /small_model is/);
   assert.match(drifted.stdout, /1 profile\(s\) checked, 2 drift\(s\)/);
 });

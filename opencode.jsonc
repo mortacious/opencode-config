@@ -18,25 +18,7 @@
     },
     "./plugin-src/fusion-audit",
     "./plugin-src/fusion-bootstrap",
-    {
-      "package": "./plugin-src/fusion-tools",
-      "options": {
-        "advisor": {
-          "enabled": false,
-          "model": "opencode-go/deepseek-v4.1-flash",
-          "scope": ["orchestrator"],
-          "activation": "idle-complex",
-          "minStepsTurn": 8,
-          "minTurnDeltaChars": 8000,
-          "failurePauseMs": 900000
-        },
-        "fanout": {
-          "enabled": true,
-          "maxConcurrency": 8,
-          "defaultAgent": "worker"
-        }
-      }
-    },
+    "./plugin-src/fusion-channel",
     // disabled: lumo-tamer server requires tamer auth; re-enable after running it
     // {
     //   "package": "./plugin-src/lumo-supervisor",
@@ -168,16 +150,10 @@
     "plan": {
       "disabled": true
     },
-    "worker": {
-      "model": "opencode-go/deepseek-v4.1-flash"
-    },
     "reviewer": {
       "model": "opencode-go/deepseek-v4.1-flash"
     },
     "sidekick": {
-      "model": "opencode-go/deepseek-v4.1-flash"
-    },
-    "advisor": {
       "model": "opencode-go/deepseek-v4.1-flash"
     }
   },

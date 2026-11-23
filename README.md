@@ -30,7 +30,7 @@ Personal opencode configuration. Managed as a private git repo for deployment ac
 
 ## What lives where
 
-See `REPO.md` for the authoritative layout map and `AGENTS.md` for the Fusion delegation pattern that governs how the agents (`orchestrator` as the single entrypoint, then `sidekick` for execution and commits, `analyst` for read-only exploration/research/planning/visual inspection/red-team, and `reviewer` for the audit gate; `worker` is fanout-only) divide planning from execution.
+See `REPO.md` for the authoritative layout map and `AGENTS.md` for the Fusion delegation pattern that governs how the agents (`orchestrator` as the single entrypoint, then `sidekick` for execution and commits, `analyst` for read-only exploration/research/planning/visual inspection/red-team, and `reviewer` for the audit gate) divide planning from execution.
 
 ## Profiles
 

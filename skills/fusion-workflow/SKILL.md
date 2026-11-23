@@ -7,7 +7,7 @@ description: Use when starting a session or task in the Fusion setup, or when un
 
 ## Overview
 
-This config exposes one primary, `orchestrator`, plus thin subagent capability shells (`sidekick`, `analyst`, `reviewer`, `worker`). `sidekick` executes (including visual work and commits), `analyst` is the read-only generalist (exploration, research, planning, visual inspection, red-team), `reviewer` is the audit gate, and `worker` is the fanout-only shell the plugin creates - never dispatch it directly. The shells carry permissions and report format; the method lives in skills. Skills are advertised session-wide, so nothing selects one for you: you load the matching skill with the `skill` tool before acting. Loading it is cheap; skipping it means re-deriving a method that already exists here.
+This config exposes one primary, `orchestrator`, plus thin subagent capability shells (`sidekick`, `analyst`, `reviewer`). `sidekick` executes (including visual work and commits), `analyst` is the read-only generalist (exploration, research, planning, visual inspection, red-team), and `reviewer` is the audit gate. The shells carry permissions and report format; the method lives in skills. Skills are advertised session-wide, so nothing selects one for you: you load the matching skill with the `skill` tool before acting. Loading it is cheap; skipping it means re-deriving a method that already exists here.
 
 ## When to Use
 
@@ -51,6 +51,7 @@ Do not use this skill in place of a specific one. It routes; it does not carry t
 - Evidence is an evaluation you ran or a reference you resolved by lookup. Memory is not evidence.
 - Choose the model tier per delegation from the injected tier table; never invent a model id.
 - Primaries never edit files. The orchestrator decides what to commit or push and delegates execution to `sidekick` with `fusion-commit`; no other agent commits.
+- Only the orchestrator creates or removes git worktrees; execution agents never do, and a worktree task is delegated with the worktree path in both the task template and the `subagent` `workdir`.
 - ASCII only: no smart quotes, no em-dashes, no unicode arrows.
 - Plan-log entries follow the one-to-two-line grammar, not a changelog.
 - Delegate bulk: no orchestrator reads over ~150 lines, no raw output in its context; prune closed blocks at step close.

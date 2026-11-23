@@ -52,7 +52,6 @@ const CANONICAL_ACTIONS = new Set([
   'websearch',
   'external_directory',
   'execute',
-  'submit_result',
   'grep',
   'glob',
   'prune',
@@ -76,7 +75,7 @@ const AGENT_FRONTMATTER_KEYS = new Set(['description', 'mode', 'permissions']);
 // explicit read-only allows. orchestrator replaces the old build primary;
 // analyst is a read-only generalist with a deny-by-default shell, so it is
 // absent here and its own rules are checked like any other subagent's.
-const BLANKET_SHELL_AGENTS = new Set(['orchestrator', 'sidekick', 'worker']);
+const BLANKET_SHELL_AGENTS = new Set(['orchestrator', 'sidekick']);
 
 // A `{ "disabled": true }` entry removes a built-in agent from the config
 // (build/plan are disabled in favor of orchestrator) and carries no
@@ -879,7 +878,7 @@ check('every fusion-* reference in agent/skill bodies resolves to a skill or loc
     targets.push(...listFiles(skillsDir, true).filter((file) => file.endsWith('.md')));
   }
   // The fusion- prefix is shared by skills and by the local plugin packages
-  // (worker.md names the fusion-tools plugin), so both locations count.
+  // (sidekick.md names the fusion-channel plugin), so both locations count.
   const REF_RE = /(?<![A-Za-z0-9_-])fusion-[a-z0-9][a-z0-9-]*/g;
   const resolvedNames = new Set();
   const bad = [];
@@ -937,7 +936,7 @@ check('MCP tool permission actions resolve to a configured MCP server', () => {
   return summarize(bad, `${checked} tool actions resolve to ${servers.size} MCP servers`);
 });
 
-check('blanket shell allow (*) is limited to orchestrator, sidekick, worker', () => {
+check('blanket shell allow (*) is limited to orchestrator, sidekick', () => {
   const bad = [];
   let seen = 0;
   const holders = new Set();
@@ -1011,6 +1010,9 @@ const SIDEKICK_GIT_GUARDS = [
   'git -c* commit*',
   'git -c* push*',
   'git --git-dir*',
+  'git worktree add*',
+  'git worktree remove*',
+  'git worktree prune*',
   'sh -c* git*',
   'sh -c*git*',
   'bash -c* git*',
@@ -1035,6 +1037,23 @@ const SIDEKICK_GIT_SAMPLES = [
   { command: 'git -C . commit -m x', effect: 'deny' },
   { command: 'git -c user.name=x commit -m x', effect: 'deny' },
   { command: 'sh -c "git push"', effect: 'deny' },
+  // Worktree creation/removal is orchestrator-only; sidekick lists but never
+  // creates or prunes. Branch integration is the one explicitly-named merge.
+  { command: 'git worktree list', effect: 'allow' },
+  { command: 'git worktree add ../wt', effect: 'deny' },
+  { command: 'git worktree remove ../wt', effect: 'deny' },
+  { command: 'git worktree prune', effect: 'deny' },
+  { command: 'git merge --no-ff feature', effect: 'allow' },
+  { command: 'git merge feature', effect: 'deny' },
+];
+
+// The orchestrator is the only agent allowed to create, remove, or prune
+// worktrees; these allows must survive its git write denies (findLast).
+const ORCHESTRATOR_WORKTREE_SAMPLES = [
+  { command: 'git worktree list', effect: 'allow' },
+  { command: 'git worktree add ../wt', effect: 'allow' },
+  { command: 'git worktree remove ../wt', effect: 'allow' },
+  { command: 'git worktree prune', effect: 'allow' },
 ];
 
 // The orchestrator decides when and what to commit, never executes: every git
@@ -1088,6 +1107,16 @@ check('git write surface: sidekick guarded, orchestrator and other blanket shell
       const actual = shellDecision(shellRules, command);
       if (actual !== 'deny') {
         bad.push(`agents/${name}.md: "${command}" resolves ${actual ?? 'unmatched'}, expected deny`);
+      }
+    }
+    if (name === 'orchestrator') {
+      for (const { command, effect } of ORCHESTRATOR_WORKTREE_SAMPLES) {
+        const actual = shellDecision(shellRules, command);
+        if (actual !== effect) {
+          bad.push(
+            `agents/${name}.md: "${command}" resolves ${actual ?? 'unmatched'}, expected ${effect}`,
+          );
+        }
       }
     }
   }

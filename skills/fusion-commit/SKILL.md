@@ -1,6 +1,6 @@
 ---
 name: fusion-commit
-description: Use when executing a commit or push task from the orchestrator, or when a task prompt names this skill - stages exactly the listed paths, commits with the message verbatim, and pushes only to the explicit target. Do not use for deciding what to commit, for editing files, or for merges and rebases.
+description: Use when executing a commit or push task from the orchestrator, or when a task prompt names this skill - stages exactly the listed paths, commits with the message verbatim, and pushes only to the explicit target; a spec that names an integration branch also permits one `git merge --no-ff <branch>`. Do not use for deciding what to commit, for editing files, or for plain merges, rebases, and history rewrites.
 ---
 
 # Fusion Commit
@@ -20,8 +20,9 @@ denies force, mirror, ref deletion, amend, hook bypass, and every wrapper form.
 - The orchestrator asks you to stage and commit an already-reviewed change.
 - A previous attempt failed on a hook and the orchestrator re-delegated with an adjusted spec.
 
-Do not use it to decide what belongs in a commit, to clean up unrelated changes, to amend
-history, or to merge. Those are stop conditions, not commit work.
+Do not use it to decide what belongs in a commit, to clean up unrelated changes, or to amend
+history. Plain merges, rebases, and rewrites are stop conditions, not commit work; the one
+exception is the integration merge below.
 
 ## Core Pattern
 
@@ -39,6 +40,15 @@ history, or to merge. Those are stop conditions, not commit work.
 6. Verify: `git log -1 --format=%H` for the hash, `git status --short` for a clean tree, and the
    push output plus `git rev-parse <remote>/<branch>` for the updated ref.
 7. Report the commit hash, the pushed ref, and every command run.
+
+## Integration rule
+
+When - and only when - the commit spec names an integration branch, one merge is permitted for
+that branch: `git merge --no-ff <branch>`, exactly once, from the branch the spec names. This is
+the only merge form allowed; plain `git merge` (no `--no-ff`), rebases, history rewrites, and any
+second merge of the same branch stay forbidden and are stop conditions. Report the resulting
+commit graph line (`git log --oneline --graph -5`) together with the merge commit hash, so the
+orchestrator can verify the integration read-only.
 
 ## Quick Reference
 

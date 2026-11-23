@@ -1,4 +1,4 @@
-// fusion-tools: TUI plugin (plugin id "fusion-tools.tui").
+// fusion-channel: TUI plugin (plugin id "fusion-channel.tui").
 //
 // ONE /steer entry point:
 //  - "/steer <args>" forwards the raw arguments to the server "steer" RPC
@@ -48,7 +48,7 @@ function shortSessionID(sessionID: string): string {
 }
 
 export default Plugin.define({
-  id: "fusion-tools.tui",
+  id: "fusion-channel.tui",
   async setup(context) {
     const rpc = context.client.rpc(Steer);
 
@@ -71,11 +71,11 @@ export default Plugin.define({
           .alert({ title: "Steer", message })
           .catch((err: unknown) => {
             console.warn(
-              "[fusion-tools.tui] steer alert failed: " + errorText(err),
+              "[fusion-channel.tui] steer alert failed: " + errorText(err),
             );
           });
       } catch (err) {
-        console.warn("[fusion-tools.tui] steer alert failed: " + errorText(err));
+        console.warn("[fusion-channel.tui] steer alert failed: " + errorText(err));
       }
     }
 
@@ -147,7 +147,7 @@ export default Plugin.define({
           mode: "global",
           commands: [
             {
-              id: "fusion-tools.steer",
+              id: "fusion-channel.steer",
               title: "Steer a subagent",
               description:
                 "Send a steering message to a direct child session (bare invocation opens a picker)",
@@ -176,7 +176,7 @@ export default Plugin.define({
         }));
       } catch (err) {
         console.warn(
-          "[fusion-tools.tui] /steer command unavailable: " + errorText(err),
+          "[fusion-channel.tui] /steer command unavailable: " + errorText(err),
         );
       }
     }
@@ -198,7 +198,7 @@ export default Plugin.define({
       };
     } catch (err) {
       console.warn(
-        "[fusion-tools.tui] keymap bootstrap slot unavailable: " + errorText(err),
+        "[fusion-channel.tui] keymap bootstrap slot unavailable: " + errorText(err),
       );
     }
   },

@@ -282,16 +282,16 @@ else
   echo "OK: fusion-bootstrap plugin deps installed."
 fi
 
-# --- fusion-tools plugin package (plugin-src/fusion-tools) ---
-# Registered in opencode.jsonc "plugins" as an object entry with options:
-# { "package": "./plugin-src/fusion-tools", options: {...} }. It is a local
+# --- fusion-channel plugin package (plugin-src/fusion-channel) ---
+# Registered in opencode.jsonc "plugins" as the plain string
+# "./plugin-src/fusion-channel". It is a local
 # plugin package with its own dependency (@opencode/plugin), resolved from
 # its own node_modules - so it needs its own install step here.
-echo "Installing fusion-tools plugin deps (plugin-src/fusion-tools)..."
-if ! ( cd "$CONFIG_DIR/plugin-src/fusion-tools" && npm install --no-audit --no-fund ); then
-  echo "WARNING: failed to install fusion-tools plugin deps; the plugin will not load." >&2
+echo "Installing fusion-channel plugin deps (plugin-src/fusion-channel)..."
+if ! ( cd "$CONFIG_DIR/plugin-src/fusion-channel" && npm install --no-audit --no-fund ); then
+  echo "WARNING: failed to install fusion-channel plugin deps; the plugin will not load." >&2
 else
-  echo "OK: fusion-tools plugin deps installed."
+  echo "OK: fusion-channel plugin deps installed."
 fi
 
 # --- lumo-supervisor plugin package (plugin-src/lumo-supervisor) ---

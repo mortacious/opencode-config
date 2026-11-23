@@ -1,6 +1,6 @@
-// fusion-tools: structured JSON-lines logger.
-// Appends to ${HOME}/.local/state/opencode/fusion-tools.log via node:fs.
-// Overridable for tests via the FUSION_TOOLS_LOG_FILE env var.
+// fusion-channel: structured JSON-lines logger.
+// Appends to ${HOME}/.local/state/opencode/fusion-channel.log via node:fs.
+// Overridable for tests via the FUSION_CHANNEL_LOG_FILE env var.
 // Best-effort: never throws, creates the directory on demand.
 // Promise plugins in v2.0.18 cannot reach the opencode log file (upstream
 // anomalyco/opencode#27285), so this private file is the observable log:
@@ -11,17 +11,17 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 const STATE_DIR = path.join(homedir(), ".local", "state", "opencode");
-const LOG_FILE = path.join(STATE_DIR, "fusion-tools.log");
+const LOG_FILE = path.join(STATE_DIR, "fusion-channel.log");
 
 let dirReady = null; // last directory successfully created
 
-// Test seam: node:test suites set FUSION_TOOLS_LOG_FILE to a temp-dir path
+// Test seam: node:test suites set FUSION_CHANNEL_LOG_FILE to a temp-dir path
 // so test runs never touch the live state file. Read lazily per call
 // (ESM imports hoist, so a module-load-time constant could not be
 // overridden by the test body in time). Production behavior is unchanged:
 // unset (or blank) env -> the default state path.
 export function logFile() {
-  const override = process.env.FUSION_TOOLS_LOG_FILE;
+  const override = process.env.FUSION_CHANNEL_LOG_FILE;
   return typeof override === "string" && override.trim() ? override : LOG_FILE;
 }
 
@@ -30,7 +30,7 @@ export function logFile() {
 // file for Promise plugins, but visible in foreground server output).
 export function log(entry) {
   if (!entry || typeof entry !== "object") return;
-  const rec = { ts: new Date().toISOString(), service: "fusion-tools", ...entry };
+  const rec = { ts: new Date().toISOString(), service: "fusion-channel", ...entry };
   let line;
   try {
     line = JSON.stringify(rec) + "\n";

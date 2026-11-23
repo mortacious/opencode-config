@@ -1,9 +1,9 @@
-// fusion-tools tests: steer module (child tracking + /steer command).
+// fusion-channel tests: steer module (child tracking + /steer command).
 //
 // Unit tests with a mocked ctx: drives createSteerModule directly and
 // feeds session.created / session.idle events in both observed shapes
 // (properties.info for created - proven by the fusion-audit plugin -
-// and flat sessionID for idle, as read by the advisor code).
+// and flat sessionID for idle).
 
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
@@ -18,14 +18,14 @@ import os from "node:os";
 import path from "node:path";
 
 // Isolate the plugin log: test runs must never append to the live state
-// file (~/.local/state/opencode/fusion-tools.log). lib/log.js reads this
+// file (~/.local/state/opencode/fusion-channel.log). lib/log.js reads this
 // env var lazily on every log()/logFile() call. The temp dir is removed
 // after the suite finishes (top-level after hook).
-const TEST_LOG_DIR = mkdtempSync(path.join(os.tmpdir(), "fusion-tools-test-log-"));
-process.env.FUSION_TOOLS_LOG_FILE = path.join(TEST_LOG_DIR, "test.log");
+const TEST_LOG_DIR = mkdtempSync(path.join(os.tmpdir(), "fusion-channel-test-log-"));
+process.env.FUSION_CHANNEL_LOG_FILE = path.join(TEST_LOG_DIR, "test.log");
 // Steer notifications append to the durable channel log; keep every suite on
 // a temp file so tests never touch the live fusion-inbox.jsonl.
-process.env.FUSION_TOOLS_INBOX_FILE = path.join(TEST_LOG_DIR, "test-inbox.jsonl");
+process.env.FUSION_CHANNEL_INBOX_FILE = path.join(TEST_LOG_DIR, "test-inbox.jsonl");
 after(() => {
   try {
     rmSync(TEST_LOG_DIR, { recursive: true, force: true });
@@ -260,7 +260,7 @@ test("steer tool: session id target delivers to that child and passes delivery t
 
 test("steer tool: a session id that is not a direct child is rejected", async () => {
   const { ctx, calls, sessions } = makeCtx();
-  sessions.set("ses_other", childInfo("ses_other", "ses_grandparent", "worker"));
+  sessions.set("ses_other", childInfo("ses_other", "ses_grandparent", "reviewer"));
   const steer = createSteerModule({ ctx });
   const res = await steer.tools.steer.execute(
     { target: "ses_other", message: "hi" },
@@ -421,7 +421,7 @@ test("report tool: a root session is told there is no orchestrator and nothing i
   const dir = inboxDir();
   const inbox = path.join(dir, "fusion-inbox.jsonl");
   const { ctx, calls, sessions } = makeCtx();
-  sessions.set("ses_root", { id: "ses_root", agent: "worker" });
+  sessions.set("ses_root", { id: "ses_root", agent: "reviewer" });
   const steer = createSteerModule({ ctx, inboxPath: inbox });
   const res = await steer.tools.report.execute(
     { message: "context" },

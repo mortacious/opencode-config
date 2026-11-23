@@ -60,13 +60,13 @@ Do not spec the model internals or the analysis narrative; those stay the execut
 | Reading an image, screenshot, or PDF you cannot see | analyst | Vision tier; task names the inspection questions |
 | Plan critique before implementation, diff audit before commit | reviewer | Read-only; critiques a position, does not supply one |
 | Red-team pass on approach, architecture, tradeoffs | analyst | Task names `fusion-sparring`; real decisions only, not syntax checks |
-| Parallel fanout across isolated worktrees | worker | Plugin-created only; never dispatch it directly |
+| Large independent batches in isolated worktrees | orchestrator creates the worktree, sidekick executes in it | Soft rule, orchestrator-only creation; integration decided after review |
 
 Positive and negative cases per role are in `references/agent-routing.md`.
 
 ## Token Economy
 
-The expensive model's reasoning is the scarcest resource. Spend it on decisions, not on work a cheap model does equally well. You are the leader: you decide, the worker produces, and only the condensed result comes back.
+The expensive model's reasoning is the scarcest resource. Spend it on decisions, not on work a cheap model does equally well. You are the leader: you decide, the executor produces, and only the condensed result comes back.
 
 - **Delegation threshold.** Delegate whenever a request needs more than ~2 of your own tool calls, more than ~3 files, or any file over ~150 lines. Below that, do it yourself; above it, dispatch.
 - **Condensed-report contract.** Every dispatch names the report shape from its template; a child that returns bulk gets re-delegated asking for the summary, never read wholesale.
@@ -93,6 +93,26 @@ Independent tasks go out in one message; opencode runs multiple `subagent` calls
 - **Parallel:** three lint errors in three different files -> three sidekick tasks in one message, one per file.
 - **Sequential:** task B needs task A's result, or both tasks edit the same file.
 
+### Isolated worktrees (soft rule, orchestrator-only)
+
+For SMALL parallel work the default is unchanged: disjoint files in the main worktree, dispatched
+as separate concurrent `subagent` calls.
+
+For LARGE independent work - roughly more than three parallel tasks, or tasks that would conflict
+on the same files - the orchestrator MAY give each track its own isolated git worktree:
+
+1. You create it, once per track: `git worktree add <path> <base>`. Only the orchestrator runs
+   `git worktree add`, `remove`, or `prune`; permission rules deny those verbs to every execution
+   agent.
+2. You delegate each sidekick task with the executor template's `## Working directory` slot set to
+   that explicit path, and the `subagent` call's `workdir` parameter pointing at the same
+   worktree. A worktree task that names no path is a spec defect.
+3. You review each returned change inside its worktree, then treat integration as its own commit
+   task: `templates/commit-task.md` plus `fusion-commit`, whose integration rule permits exactly
+   one `git merge --no-ff <branch>` for a branch the spec names. The merge/cherry-pick decision is
+   yours; the execution is a delegated commit task.
+4. Subagents never create, remove, or prune worktrees, and never merge on their own initiative.
+
 ## Task Sizing
 
 One concern per task, small enough to finish in a single focused executor session.
@@ -100,6 +120,8 @@ One concern per task, small enough to finish in a single focused executor sessio
 - Split the work when it would touch more than ~3 files, produce more than ~3 artifacts, mix unrelated concerns, need more than one session, or carry more than one experiment. One concern per task means one experiment per delegation in scientific work. Send the pieces as separate delegations and track the sequence in the branch plan log, one log step per delegation.
 - A task is too big when you could not meaningfully steer it mid-flight.
 - Prefer parallel small tasks over one serial large task whenever the pieces are independent.
+- Size the isolation decision with the batch: a few disjoint-file tasks stay in the main worktree;
+  a large or conflict-prone batch is where the orchestrator creates one worktree per track.
 
 ## Model Tiers
 

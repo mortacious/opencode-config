@@ -8,11 +8,11 @@ this repository itself also means reading REPO.md (layout, gitignore policy, edi
 
 One visible `mode: primary` agent (`orchestrator`) owns the plan, ambiguity calls, and final
 review. It cannot edit files; every change is delegated to a `mode: subagent` shell and reviewed
-before it is accepted. The roster is four capability shells plus the fanout worker: `sidekick`
-(execution, visual work, and commits), `analyst` (read-only generalist: exploration, research,
-planning, visual inspection, red-team), `reviewer` (audit gate), and `worker` (fanout only). Method
-knowledge lives in `skills/`; agent files are thin capability shells that point at it. Subagents
-cannot ask the user, so the interactive settle loop stays with the orchestrator.
+before it is accepted. The roster is three capability shells: `sidekick` (execution, visual work,
+and commits), `analyst` (read-only generalist: exploration, research, planning, visual inspection,
+red-team), and `reviewer` (audit gate). Method knowledge lives in `skills/`; agent files are thin
+capability shells that point at it. Subagents cannot ask the user, so the interactive settle loop
+stays with the orchestrator.
 
 ## Invariants
 
@@ -24,12 +24,12 @@ cannot ask the user, so the interactive settle loop stays with the orchestrator.
   (`agents.build.disabled`, `agents.plan.disabled`); `default_agent` is `orchestrator`, so a bare
   session starts in the single visible primary. `analyst` is not a picker entry: the orchestrator
   dispatches it as a read-only subagent.
-- Primary `subagent` allowlist: `sidekick`, `analyst`, `reviewer`. `worker` is fanout-only and is
-  created by the plugin, never dispatched by an agent. The built-in `general` subagent is excluded
-  - do not route to it.
+- Primary `subagent` allowlist: `sidekick`, `analyst`, `reviewer`. The built-in `general`
+  subagent is excluded - do not route to it.
+- Only the orchestrator creates or removes git worktrees; execution agents never do.
 - Primaries steer a running child with the `steer` tool (target by session id or agent name);
   subagents report important mid-task discoveries to the orchestrator with the `report` tool
-  (kind `note|question|blocker`) - the inbox plus live channel in `fusion-tools`.
+  (kind `note|question|blocker`) - the inbox plus live channel in `fusion-channel`.
 - Permissions are V2 `permissions` arrays only, evaluated findLast (last matching rule wins):
   write the most general rule first and the specific exceptions last, so a deny-list policy reads
   blanket allow -> denies -> re-allows. Canonical action names are
@@ -47,7 +47,7 @@ cannot ask the user, so the interactive settle loop stays with the orchestrator.
   back to the base `opencode.jsonc` pins. Primaries choose a tier per delegation, default to the
   delegating agent's tier, and may override one step; the chosen tier's literal model id goes in
   the `subagent` call's `model` parameter. Agent default tiers are `orchestrator=big`,
-  `sidekick`/`analyst`/`reviewer`/`worker`/`advisor=medium`, and `title=small`. `vision` is a
+  `sidekick`/`analyst`/`reviewer` all `medium`, and `title=small`. `vision` is a
   modality constraint (image input), not a reasoning size: a visual or visual-inspection task
   runs on that tier. Agent frontmatter never carries a model.
 - Skills are advertised session-wide and filtered only by `skill` permission rules. An agent that

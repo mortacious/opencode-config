@@ -1,4 +1,4 @@
-// fusion-tools: shared RPC definition (rpc id "steer") used by the server
+// fusion-channel: shared RPC definition (rpc id "steer") used by the server
 // plugin (index.js) and the TUI plugin (tui.tsx).
 //
 // Methods:

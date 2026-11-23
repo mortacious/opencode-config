@@ -134,6 +134,24 @@ permissions:
   - action: shell
     resource: "git -C* pull*"
     effect: deny
+  # Worktrees are orchestrator-created: list stays allowed by the blanket
+  # allow, creation/removal/prune do not.
+  - action: shell
+    resource: "git worktree add*"
+    effect: deny
+  - action: shell
+    resource: "git worktree remove*"
+    effect: deny
+  - action: shell
+    resource: "git worktree prune*"
+    effect: deny
+  # Branch integration is the one merge the orchestrator may name: a single
+  # `git merge --no-ff <branch>` from a commit task. Plain `git merge` stays
+  # denied above; permissions evaluate findLast, so this allow must come after
+  # that deny.
+  - action: shell
+    resource: "git merge --no-ff*"
+    effect: allow
   - action: subagent
     resource: "*"
     effect: deny

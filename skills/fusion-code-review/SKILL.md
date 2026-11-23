@@ -17,6 +17,8 @@ Audit the diff, not the description of the diff. A change is done when the diff 
 
 Do not use for plan critique (use `plan-review`), for implementing or fixing the code yourself, or for style preferences with no correctness impact.
 
+A reviewer may load this skill for a code diff or for a scientific artifact - a report section, notebook, metrics table, or figure. The axes differ; the severity vocabulary and report format do not.
+
 ## Core Pattern
 
 1. **Get the diff.** Run `git diff` (plus `git show` / `git log` when needed) and review the actual changed lines.
@@ -33,6 +35,23 @@ Do not use for plan critique (use `plan-review`), for implementing or fixing the
 | Scope | Did it touch only what it should? | Unrelated edits, drive-by refactors, logic altered outside the task |
 | Security | Can input, auth, or secrets be abused? | Missing validation, injection, unsafe defaults, leaked secrets |
 | Consistency | Does it match the codebase? | New patterns with no precedent, style divergence, duplicated helpers |
+
+## Artifact review (scientific outputs)
+
+A code diff is one artifact among several. For a report section, notebook, metrics table, or figure, the same evidence-first discipline applies with different axes.
+
+- **Entry**: get the artifact itself - the diff, the PDF section, the notebook, the metrics table. Reviewing a summary of the artifact is not a review.
+- **Claims vs cited evidence**: every number traces to source data or an evaluation, and every citation is verified to exist with its identifier recorded; recollection is not evidence.
+- **Statistical validity**: the stated test, the effect size, and the number of runs support the strength of the claim; a single run is not a trend.
+- **Reproducibility**: seeds, library versions, and hardware are recorded well enough for another lab to rerun.
+- **Baseline fairness and split leakage**: baselines run under the same protocol, and no train/test contamination across scenes, subjects, or sessions.
+- **Data provenance and licensing**: the dataset source, license, and permitted uses are stated.
+- **Figure-data consistency**: plotted values match the metrics file, and axes, units, and error bars are honest about sample size.
+- **Ablation coverage**: each design choice the claim depends on has an ablation.
+
+Use the severity levels and report format below unchanged; name the artifact location (`path:line`, section title, table row, figure id) instead of a diff hunk.
+
+Evidence severity: a number with no source, or a citation that does not resolve, is at least a concern; a fabricated or unresolvable citation presented as support is a blocker.
 
 ## Severity
 

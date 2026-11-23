@@ -6,17 +6,12 @@
     "vision": "openrouter/openai/gpt-5.6-luna#max"
   },
   "agents": {
-    "build": "big",
-    "plan": "big",
-    "sparring": "big",
-    "reviewer": "medium",
+    "orchestrator": "big",
     "sidekick": "medium",
-    "explore": "medium",
-    "research": "medium",
-    "advisor": "medium",
+    "analyst": "medium",
+    "reviewer": "medium",
     "worker": "medium",
-    "design": "vision",
-    "vision": "vision",
+    "advisor": "medium",
     "title": "small"
   }
 }

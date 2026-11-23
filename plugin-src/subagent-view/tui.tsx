@@ -29,6 +29,14 @@
 //   - SessionInfo.cost gives spend (cumulative, matching OpenCode's own cost
 //     display).
 //
+// Each child renders as two single-line rows in a column box, matching the
+// default session overview: line 1 is the running marker, agent name, and task
+// label (the child session's title with a leading "@<agent> subagent" prefix
+// stripped, "Child session" when the title is absent or prefix-only); line 2 is
+// the model label, token/percent usage, and cost. Each line truncates to 72
+// chars and never wraps. Titles come from SessionInfo.title only - no
+// transcript fetch.
+//
 // The store does not update child tokens mid-run, so while at least one child
 // is running a 2s poll calls context.client.session.get({ sessionID }) plus a
 // lightweight context.client.message.list({ sessionID, limit: 1, order: "desc",
@@ -424,7 +432,40 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
     return running.concat(finished);
   });
 
-  function lineFor(info: SessionInfo): { text: string; running: boolean } {
+  // Single-line task label for a child row, from the child session's title
+  // alone (no transcript fetch). Upstream titles a child "@<agent> subagent
+  // <task>"; that prefix is stripped case-insensitively so the row shows the
+  // task, and an absent or prefix-only title degrades to "Child session".
+  function taskLabel(info: SessionInfo): string {
+    const title = typeof info.title === "string" ? info.title.trim() : "";
+    if (!title) return "Child session";
+    const agent =
+      typeof info.agent === "string" && info.agent ? info.agent : "";
+    if (agent) {
+      const prefix = "@" + agent + " subagent";
+      if (title.toLowerCase().startsWith(prefix.toLowerCase())) {
+        // Strip one separating ":" or "-" so "@analyst subagent: find X"
+        // renders "find X" rather than ": find X".
+        const rest = title
+          .slice(prefix.length)
+          .trim()
+          .replace(/^[:\-]\s*/, "")
+          .trim();
+        return rest || "Child session";
+      }
+    }
+    return title;
+  }
+
+  // Two single-line rows per child (parity with the default session overview):
+  //   line 1: status marker + agent + task label
+  //   line 2: model + usage (tokens and percent-of-context) + cost
+  // Each line is truncated independently to 72 chars and never wraps.
+  function linesFor(info: SessionInfo): {
+    line1: string;
+    line2: string;
+    running: boolean;
+  } {
     const running = statusOf(info.id) === "running";
     const liveEntry = live().get(info.id);
     const agent =
@@ -439,13 +480,18 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
     const tokens = running
       ? (liveEntry?.tokens ?? ensureFinishedTokens(info.id) ?? info.tokens)
       : (ensureFinishedTokens(info.id) ?? info.tokens);
-    const parts = [
-      (running ? "* " : "  ") + agent,
-      usageText(tokens, model.contextLimit),
-      model.label,
-      costText(liveEntry?.cost ?? info.cost),
-    ];
-    return { text: truncate(parts.join("  "), 72), running };
+    const line1 = (running ? "* " : "  ") + agent + "  " + taskLabel(info);
+    const line2 =
+      model.label +
+      "  " +
+      usageText(tokens, model.contextLimit) +
+      "  " +
+      costText(liveEntry?.cost ?? info.cost);
+    return {
+      line1: truncate(line1, 72),
+      line2: truncate(line2, 72),
+      running,
+    };
   }
 
   return (
@@ -473,9 +519,10 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
         <Show when={children().length <= 2 || view.open}>
           <For each={visible()}>
             {(info) => {
-              const row = createMemo(() => lineFor(info));
+              const row = createMemo(() => linesFor(info));
               return (
                 <box
+                  flexDirection="column"
                   onMouseDown={() => {
                     // A child/subagent session is not tab-openable (tabs are
                     // root-session tabs only), so navigation is the only
@@ -497,7 +544,16 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
                         : context.theme.text.muted
                     }
                   >
-                    {row().text}
+                    {row().line1}
+                  </text>
+                  <text
+                    fg={
+                      row().running
+                        ? context.theme.text.base
+                        : context.theme.text.muted
+                    }
+                  >
+                    {row().line2}
                   </text>
                 </box>
               );

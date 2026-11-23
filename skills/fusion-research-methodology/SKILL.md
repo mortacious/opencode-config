@@ -9,6 +9,15 @@ description: Use when gathering external information - web search, documentation
 
 Research is evidence gathering, not recall. Every load-bearing claim comes from a source you actually read, and the tool you pick is part of the method: quota-free search first, authoritative APIs for papers and code, and a named fallback when a source does not surface.
 
+## Evidence rule (hard)
+
+A claim is evidence only in one of two forms:
+
+- **An evaluation** - an experiment, benchmark, dataset statistic, or measurement you can point to, with its method and numbers: what ran, on what data, under which protocol, producing which value.
+- **A literature reference proven to exist** - a work looked up and resolved to an identifier (DOI, arXiv ID, DBLP or Semantic Scholar entry), with title, authors, and venue/year recorded.
+
+Verify before citing: look up every cited work with `semantic-scholar`, `arxiv`, `dblp`, or DOI resolution, and record the identifier next to the claim. A reference you cannot resolve goes under GAPS as an unverified lead, never into FINDINGS as support. Memory is not evidence: a citation you remember is an unverified citation, and a plausible-looking reference you never looked up is a fabricated one. Hypotheses and unverified claims are labeled as such and can never serve as evidence for something else.
+
 ## When to Use
 
 - A question depends on current or version-specific facts: releases, changelogs, API shapes, deprecations.
@@ -40,6 +49,10 @@ Do not use for questions answerable from the local codebase (that is exploration
 | Cross-repo code search | `sourcegraph` | Disabled until a token and HTTP transport are configured |
 | Library or API reference docs for a pinned version | `ddgs` on the official docs, then `webfetch` the versioned page | Read the pinned version's own docs; do not answer from memory |
 | Exact error message, known bug, workaround | `github` issue search, then `ddgs` on the exact quoted message | Check closed issues for resolution patterns |
+| Dataset or benchmark for a task | `semantic-scholar` for the paper that introduced it, then `ddgs` on its official site | Confirm license, split protocol, and current version before planning around it |
+| Sensor, hardware, or standard specification | `ddgs` on the vendor or standards-body page, then `webfetch` the datasheet | The datasheet or standard is authoritative; blogs and forum posts are not |
+| Robotics framework docs (ROS 2, MoveIt, Nav2) | `ddgs` on the documentation site, `github` for issues and source | Version-specific; match the pinned distro, not the latest docs |
+| Reproducibility package, code release, DOI | `github` for the paper repo, `ddgs` for the Zenodo or OSF record | Cite the DOI record when one exists, not a bare repo URL |
 
 Full per-server details, rate limits, and the paper-to-code linking recipe are in `references/tool-matrix.md`. Per-topic source and query strategy is in `references/search-topics.md`. Read `references/tool-matrix.md` before choosing a research MCP tool; its rate limits and tool names decide whether a lookup will work.
 
@@ -67,6 +80,7 @@ If STATUS is escalate, put the decision the main agent must make in GAPS.
 ## Common Mistakes
 
 - Answering first and searching only to confirm, which produces confident stale facts.
+- Citing from memory or trusting a plausible-looking reference without a lookup; a reference that does not resolve is not a citation.
 - Citing a search snippet instead of the page behind it.
 - Using `websearch` when `ddgs` would do, burning credits for no gain.
 - Trusting a model-generated BibTeX entry instead of exporting it from DBLP or Semantic Scholar.
@@ -84,4 +98,4 @@ If STATUS is escalate, put the decision the main agent must make in GAPS.
 ## References
 
 - `references/tool-matrix.md` - per-server capabilities, rate limits, and the paper-to-code linking recipe.
-- `references/search-topics.md` - source and query strategy per topic: academic papers, Chinese-language tech, general web, GitHub/error debugging, Stack Overflow.
+- `references/search-topics.md` - source and query strategy per topic: academic papers, datasets and benchmarks, sensor and hardware standards, robotics and ROS docs, reproducibility packages and DOIs, Chinese-language tech, general web, GitHub/error debugging, Stack Overflow.

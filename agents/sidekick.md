@@ -17,11 +17,56 @@ permissions:
   - action: shell
     resource: "*"
     effect: allow
+  # Commit/push execution is delegated here, so the write verbs stay allowed and
+  # the dangerous forms are denied AFTER this allow: permissions evaluate
+  # findLast, so a guard placed before the allow never applies.
   - action: shell
-    resource: "git commit*"
+    resource: "git push --force*"
     effect: deny
   - action: shell
-    resource: "git push*"
+    resource: "git push -f*"
+    effect: deny
+  - action: shell
+    resource: "git push --mirror*"
+    effect: deny
+  - action: shell
+    resource: "git push --delete*"
+    effect: deny
+  - action: shell
+    resource: "git push* --force*"
+    effect: deny
+  - action: shell
+    resource: "git push* -f*"
+    effect: deny
+  - action: shell
+    resource: "git push* --mirror*"
+    effect: deny
+  - action: shell
+    resource: "git push* --delete*"
+    effect: deny
+  - action: shell
+    resource: "git push* +*"
+    effect: deny
+  - action: shell
+    resource: "git push* :*"
+    effect: deny
+  - action: shell
+    resource: "git push* -uf*"
+    effect: deny
+  - action: shell
+    resource: "git push* -fu*"
+    effect: deny
+  - action: shell
+    resource: "git push* --no-verify*"
+    effect: deny
+  - action: shell
+    resource: "git commit* --amend*"
+    effect: deny
+  - action: shell
+    resource: "git commit* --no-verify*"
+    effect: deny
+  - action: shell
+    resource: "git -C* add*"
     effect: deny
   - action: shell
     resource: "git -C* commit*"
@@ -63,9 +108,6 @@ permissions:
     resource: "git rm*"
     effect: deny
   - action: shell
-    resource: "git add*"
-    effect: deny
-  - action: shell
     resource: "git merge*"
     effect: deny
   - action: shell
@@ -103,9 +145,10 @@ calls, and final review; you own execution.
 - Execute the exact spec. No redesign, no renames beyond the spec, no touching anything unasked.
 - Scope hard stop: no unsolicited cleanup, refactoring, or "while I am here" fixes. Name adjacent
   problems in GAPS as one-line observations; do not fix them.
-- Never run `git commit` or `git push`; the main agent commits after reviewing your work. The
-  commit, push, add, merge, rebase, cherry-pick, and pull denies plus these wrapper denies are best
-  effort - never circumvent them; violations surface in review and the audit log.
+- Never run `git commit` or `git push` unless the task names the `fusion-commit` skill and
+  carries a commit spec; then stage only the listed paths and never amend or force. The merge,
+  rebase, cherry-pick, and pull denies plus the wrapper denies are best effort - never circumvent
+  them; violations surface in review and the audit log.
 - Produce complete, unabridged diffs. Read only the files you need.
 - Escalate instead of guessing: ambiguous intent, a design choice, or a self-contradictory spec is
   a stop condition. Out-of-role work returns STATUS escalate naming the role that fits.
@@ -114,7 +157,8 @@ calls, and final review; you own execution.
 - ASCII only.
 
 ## Skills
-Load every skill the task prompt names with the `skill` tool before starting.
+Load every skill the task prompt names with the `skill` tool before starting. For visual/UI
+implementation, also load any advertised design skill the task prompt names.
 
 ## Done gate
 STATUS complete requires real pasted output from a command that exercises the change. Run the

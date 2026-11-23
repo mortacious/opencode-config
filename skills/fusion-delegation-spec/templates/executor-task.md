@@ -1,6 +1,6 @@
 # Executor Task Template
 
-Copy this into a `subagent` delegation for sidekick or design. Every section is required: fill it, or write "none" with a reason. Delete the guidance italic lines before sending.
+Copy this into a `subagent` delegation for sidekick. Every section is required: fill it, or write "none" with a reason. Delete the guidance italic lines before sending.
 
 ## Objective
 
@@ -46,7 +46,7 @@ _Expected: <test count / exit code / output>._
 
 ## Model tier
 
-<!-- REQUIRED: one of big | medium | small | vision. State the agent's default tier (sidekick: medium, design: vision) unless overriding. Override only for a clearly mechanical task (small), a hard-reasoning task (big), or image input (vision); then name that tier's model id from the injected Model tiers table. -->
+<!-- REQUIRED: one of big | medium | small | vision. State the agent's default tier (sidekick: medium) unless overriding. Override only for a clearly mechanical task (small), a hard-reasoning task (big), or image input (vision); then name that tier's model id from the injected Model tiers table. -->
 
 - Tier: big | medium | small | vision
 - Model override: `<provider>/<model>` from the injected table, or "none - default"
@@ -55,11 +55,13 @@ _Expected: <test count / exit code / output>._
 
 <!-- What the executor must return. Summaries without real command output do not count. -->
 
-- **SKILLS**: comma-separated ids of the skills you loaded before starting, or "none"
-- **STATUS**: complete | partial | blocked | escalate
+Condensed report - this is input for an expensive orchestrator; no bulk output.
+
+- **SKILLS**: comma-separated ids of the skills you loaded before starting, or "none" - first line, one line
+- **STATUS**: complete | partial | blocked | escalate - one line
 - **CHANGES**: one line per file actually modified, from the real diff
-- **VERIFIED**: the exact commands run and their real output
-- **GAPS**: anything unfinished, any ambiguity hit, or "none"
+- **VERIFIED**: the exact command plus a one-line result each - no raw output dumps; write long logs to a file and cite the path
+- **GAPS**: anything unfinished, any ambiguity hit, or "none" - max 5 bullets
 
 ## Stop conditions
 

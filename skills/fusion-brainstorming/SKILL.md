@@ -34,7 +34,7 @@ HARD GATE: if any aspect of the problem is still unsettled, ask another question
 
 - One question at a time. A small batch of tightly related questions is acceptable only when they share one context; a questionnaire is not.
 - Prefer multiple choice with your recommended option first and one line on why. Use open questions while the why, the users, or the gap are still unknown - the user's own words carry intent that your options cannot.
-- Say what the answer will change. A question whose answer would not change what gets built or studied is a decision you should make yourself and state as a proposal the user can correct.
+- Say what the answer will change. A question whose answer would not change the work is a decision you should make yourself and state as a proposal the user can correct.
 - Challenge vague words. "Fast", "simple", "flexible", "novel", "clean", "better" are not requirements: ask for the number, the case, the comparison, or the closest prior work.
 - Never assume a default silently. State the call in one line so the user can reject it.
 - Play it back in chunks. Once a part is understood - what it is for, who it serves, how it behaves - echo it in a few lines and ask what is wrong or missing.
@@ -56,8 +56,9 @@ Do not propose research ideas until these are settled. A vague "novel" is an ope
 **Literature phase, before generating ideas.** Ground the discussion in prior work:
 
 - Quick single-shot lookups - one paper, one citation, one SOTA number - you may do directly with the `arxiv`, `semantic-scholar`, or `ddgs` MCP tools.
-- Broader sweeps, comparative surveys, and synthesis go to the `research` agent with the `fusion-research-methodology` skill.
+- Broader sweeps, comparative surveys, and synthesis go to the `analyst` agent with the `fusion-research-methodology` skill.
 - Mandatory before any idea: related work on the exact task, current SOTA baselines with numbers, and the closest existing contribution, named explicitly. An idea that duplicates the closest work is dropped before it reaches the user, not after.
+- Every prior-art and gap claim in the design summary is backed by a verified reference (identifier recorded, per `fusion-research-methodology`) or by the user's own evaluation data. Verify identifiers before the gate closes; anything unresolved is labeled a hypothesis or dropped, not repeated as fact.
 
 **Candidate directions, once settled.** Present 2-3, each stated as:
 
@@ -68,7 +69,7 @@ Do not propose research ideas until these are settled. A vague "novel" is an ope
 5. Rough evaluation plan - data, baselines, metrics.
 6. Main risks.
 
-Get the user's pick before proceeding. If a direction is contested, optionally route it through the `sparring` agent for a red-team pass before the gate closes.
+Get the user's pick before proceeding. If a direction is contested, optionally route it through the `analyst` agent with `fusion-sparring` for a red-team pass before the gate closes.
 
 **Approved output:** a short research-proposal summary - question, gap, contribution, evaluation sketch. It is what planning records in the branch plan log.
 
@@ -78,7 +79,7 @@ Present 2-3 real candidate approaches in one message, concrete enough to picture
 
 ### 5. Approval
 
-Write the summary for explicit approval - a message, not a document. Software mode: intent and why; goals and non-goals; constraints; the chosen approach and why; the calls you made; what is left to the builder. Research mode: question, gap, contribution, evaluation sketch, risks, and the calls you made.
+Write the summary for explicit approval - a message, not a document. Software mode: intent and why; goals and non-goals; constraints; the chosen approach and why; the calls you made; what is left to the executor. Research mode: question, gap, contribution, evaluation sketch, risks, and the calls you made.
 
 HARD GATE, both modes: nothing gets designed further, planned, or built until the user approves. Reading and exploring are fine; edits, delegation, and planning are not. In research mode, no experiment, data collection, or paper drafting starts before the research-proposal summary is approved; the approved summary goes into the branch plan log at `.plans/<branch>.md` per the `fusion-plan-log` skill (the first execution step seeds the log when it does not exist).
 
@@ -101,7 +102,23 @@ Software-mode unknowns to pin down:
 | Success criteria | How the user will know it worked | "What would you check before calling this good?" |
 | Out of scope | What this must not become | "Is migration tooling in scope or explicitly not?" |
 
-Treat these as territory, not a script: pick the questions the request actually leaves open, and build each one on the user's last answer. In scientific work, start from the unknowns in Research mode instead.
+Treat these as territory, not a script: pick the questions the request actually leaves open, and build each one on the user's last answer. In scientific work, start from the research unknowns below instead.
+
+Research-mode unknowns to pin down:
+
+| Question type | What to pin down | Shape of the ask |
+| --- | --- | --- |
+| Data provenance | Where the data comes from, whether you may use it, and under what terms | "Is this dataset public, licensed for research use, or restricted - and is the license compatible with publication?" |
+| Splits and leakage | How train/val/test are separated and what could leak across them | "Are scenes, subjects, or sessions disjoint across splits, or split by frame?" |
+| Baselines | Which baselines you compare against and the numbers they actually reported | "Which baselines are mandatory, and are we reproducing their numbers or citing the paper's?" |
+| Metrics | The exact metric, its definition, and how it aggregates | "Is mIoU computed per class then averaged, and over which class set?" |
+| Ablations | Which design choices get an ablation axis | "Which components must be ablated for the claim to hold?" |
+| Statistics | The test, the effect size, and how many runs | "Do we report mean over N seeds with a significance test, or a single run?" |
+| Compute and time | The hardware, the wall-clock, and the deadline | "What compute is available, and what is the latest date the main result can land?" |
+| Calibration and frames | Sensor calibration, coordinate conventions, and units | "Which frame are poses in, is the calibration current, and what are the units?" |
+| Artifacts and venue | What the output is and the bar it must clear | "Is this a workshop paper, a full paper, or an internal report, and what artifacts ship with it?" |
+| Reproducibility | Seeds, hardware, library versions, and how another lab reruns it | "Can someone rerun the headline number from the repo, and what is pinned?" |
+| Ethics and IRB | Human subjects, field data, or sensitive scenes | "Does this involve human participants or field data, and is IRB or consent approval needed?" |
 
 ## Common Mistakes
 
@@ -122,8 +139,9 @@ Treat these as territory, not a script: pick the questions the request actually 
 
 | Thought | Reality |
 | --- | --- |
-| "The request seems clear, skip the questions" | Clarity is your reading of it. Ask the one question whose answer would change the build. |
+| "The request seems clear, skip the questions" | Clarity is your reading of it. Ask the one question whose answer would change the work. |
 | "Asking wastes the user's time" | One wrong build costs more than five questions; the loop is the cheap part. |
+| "I know this paper exists" | Then it takes one lookup. An unverified reference is not a citation, and a fabricated one is a blocker. |
 | "I will assume the obvious default" | Say it out loud. A default they never heard is one they could not reject. |
 | "I already know what they want" | You know what you would want. Those differ exactly where the design will. |
 | "The idea is obviously novel" | Novelty is checked against the closest work, not felt. Name that work first. |

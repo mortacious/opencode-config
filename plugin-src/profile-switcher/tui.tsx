@@ -46,6 +46,7 @@ import {
   type ProfileCurrentResult,
   type ProfileListResult,
   type ProfileSetResult,
+  type ProfileTierModelEntry,
 } from "./rpc.js";
 
 function errorText(err: unknown): string {
@@ -122,6 +123,9 @@ export default Plugin.define({
 
     const [active, setActive] = createSignal("default");
     const [agents, setAgents] = createSignal<ProfileAgentModelEntry[]>([]);
+    // The active profile's four authored tier models, empty when the profile
+    // authors no readable tiers.json (the legacy per-agent fallback).
+    const [tiers, setTiers] = createSignal<ProfileTierModelEntry[]>([]);
 
     const rpc = context.client.rpc(Profile);
 
@@ -321,6 +325,7 @@ export default Plugin.define({
       )) as ProfileCurrentResult;
       setActive(current.active);
       setAgents(current.agents ?? []);
+      setTiers(current.tiers ?? []);
       // A window opened while another window already switched (or launched
       // with `oc <profile>`) starts with a stale cache; refresh it once here
       // so its first new session sees the active profile's models.
@@ -359,6 +364,15 @@ export default Plugin.define({
         if (data && Array.isArray(data.agents)) {
           setAgents(data.agents as ProfileAgentModelEntry[]);
         }
+        if (data) {
+          // The tier table always follows the event's active profile: a
+          // profile without authored tiers clears it (legacy agent rows).
+          setTiers(
+            Array.isArray(data.tiers)
+              ? (data.tiers as ProfileTierModelEntry[])
+              : []
+          );
+        }
         // A sibling window in the SAME location just switched; this window's
         // TUI agent cache is equally stale, so refresh it too (fire-and-forget:
         // the handler must not block the event bus).
@@ -395,6 +409,7 @@ export default Plugin.define({
             )) as ProfileCurrentResult;
             setActive(current.active);
             setAgents(current.agents ?? []);
+            setTiers(current.tiers ?? []);
           } catch {
             // background refresh is best-effort
           }
@@ -539,9 +554,12 @@ export default Plugin.define({
     }
 
     // Collapsible sidebar section: header "Profile: <active> (n)" with an
-    // arrow, and (when expanded) one muted "<agent>  <model>" row per agent.
-    // Storage key "sidebar", default collapsed, durable. With no known agents
-    // it degrades to the original static "Profile: <active>" line.
+    // arrow, and (when expanded) either the active profile's four tier models
+    // as muted "<tier>  <model>" rows (authored tiers.json), or - for a profile
+    // that authors no readable tier table - one muted "<agent>  <model>" row
+    // per agent (legacy fallback). Storage key "sidebar", default collapsed,
+    // durable. With no known agents it degrades to the original static
+    // "Profile: <active>" line.
     function ProfileSection() {
       const [view, updateView] = context.storage.store("sidebar", {
         initial: { open: false },
@@ -571,17 +589,36 @@ export default Plugin.define({
                 {view.open ? "\u25bc" : "\u25b6"}
               </text>
               <text fg={context.theme.text.base}>
-                <b>{"Profile: " + active() + " (" + agents().length + ")"}</b>
+                <b>
+                  {"Profile: " +
+                    active() +
+                    " (" +
+                    (tiers().length > 0 ? tiers().length : agents().length) +
+                    ")"}
+                </b>
               </text>
             </box>
             <Show when={view.open}>
-              <For each={agents()}>
-                {(entry) => (
-                  <text fg={context.theme.text.muted}>
-                    {truncate("  " + entry.agent + "  " + entry.model, 72)}
-                  </text>
-                )}
-              </For>
+              <Show
+                when={tiers().length > 0}
+                fallback={
+                  <For each={agents()}>
+                    {(entry) => (
+                      <text fg={context.theme.text.muted}>
+                        {truncate("  " + entry.agent + "  " + entry.model, 72)}
+                      </text>
+                    )}
+                  </For>
+                }
+              >
+                <For each={tiers()}>
+                  {(entry) => (
+                    <text fg={context.theme.text.muted}>
+                      {truncate("  " + entry.tier + "  " + entry.model, 72)}
+                    </text>
+                  )}
+                </For>
+              </Show>
             </Show>
           </box>
         </Show>

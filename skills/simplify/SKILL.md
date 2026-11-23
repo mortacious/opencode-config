@@ -1,6 +1,6 @@
 ---
 name: simplify
-description: Use when simplifying working code for clarity without changing behavior - after a feature passes tests but feels heavier than needed, when review flags nesting or readability, or before consolidating duplication. Do not use when the code's behavior is not yet understood, when it is performance-sensitive and the clearer version would be slower, or when the module is about to be rewritten.
+description: Use when simplifying working code for clarity without changing behavior - after a feature passes tests but feels heavier than needed, when review flags nesting or readability, or before consolidating duplication. Do not use when the code's behavior is not yet understood, when it is performance-sensitive and the clearer version would be slower, when the module is about to be rewritten, or for prose, papers, or analysis write-ups - this skill is code clarity only.
 ---
 
 # Code Simplification
@@ -8,6 +8,8 @@ description: Use when simplifying working code for clarity without changing beha
 ## Overview
 
 Simplify code by reducing complexity while preserving exact behavior. The goal is not fewer lines - it is code that is easier to read, understand, modify, and debug. Every simplification must pass a simple test: "Would a new team member understand this faster than the original?"
+
+Scope: code clarity only. Prose, papers, reports, figures, and analysis narratives are out of scope here - their clarity problems need an editorial pass, not a refactor.
 
 ## When to Use
 
@@ -24,6 +26,7 @@ Simplify code by reducing complexity while preserving exact behavior. The goal i
 - You don't understand what the code does yet - comprehend before you simplify
 - The code is performance-sensitive and the "simpler" version would be measurably slower
 - You're about to rewrite the module entirely - simplifying throwaway code wastes effort
+- The artifact is prose, a paper section, a figure, or an analysis narrative - this skill is code clarity only
 
 ## The Five Principles
 

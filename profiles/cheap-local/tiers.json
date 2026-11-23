@@ -6,17 +6,12 @@
     "vision": "Amenable Thor 1/qwen38-flash-next"
   },
   "agents": {
-    "build": "big",
-    "plan": "big",
-    "sparring": "big",
-    "reviewer": "medium",
+    "orchestrator": "big",
     "sidekick": "medium",
-    "explore": "medium",
-    "research": "medium",
-    "advisor": "medium",
+    "analyst": "medium",
+    "reviewer": "medium",
     "worker": "medium",
-    "design": "vision",
-    "vision": "vision",
-    "title": "medium"
+    "advisor": "medium",
+    "title": "small"
   }
 }

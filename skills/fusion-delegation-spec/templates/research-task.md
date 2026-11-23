@@ -1,6 +1,6 @@
 # Research Task Template
 
-Copy this into a `subagent` delegation for research. Every section is required: fill it, or write "none" with a reason. Delete the guidance italic lines before sending.
+Copy this into a `subagent` delegation to analyst for external research. Every section is required: fill it, or write "none" with a reason. Delete the guidance italic lines before sending.
 
 ## Objective
 
@@ -34,7 +34,7 @@ _Answer <question> in order to decide <decision>._
 
 ## Verification
 
-<!-- What the researcher should do to confirm the key claims, and what counts as confirmation. -->
+<!-- What the analyst should do to confirm the key claims, and what counts as confirmation. -->
 
 - Re-read the primary source for each load-bearing claim.
 - Cross-check any claim that only one source makes.
@@ -42,33 +42,35 @@ _Answer <question> in order to decide <decision>._
 
 ## Skills to load
 
-<!-- Skill names the researcher must load before starting. -->
+<!-- Skill names the analyst must load before starting. -->
 
 - `fusion-research-methodology`
 
 ## Model tier
 
-<!-- REQUIRED: one of big | medium | small | vision. Researcher's default tier is medium. Name the overriding tier's model id from the injected Model tiers table (for example when the answer hinges on conflicting-source synthesis). -->
+<!-- REQUIRED: one of big | medium | small | vision. Analyst's default tier is medium. Name the overriding tier's model id from the injected Model tiers table (for example when the answer hinges on conflicting-source synthesis). -->
 
 - Tier: big | medium | small | vision
 - Model override: `<provider>/<model>` from the injected table, or "none - default"
 
 ## Report contract
 
-<!-- What the researcher must return. -->
+<!-- What the analyst must return. -->
+
+Condensed report - this is input for an expensive orchestrator; no bulk output.
 
 - **SKILLS**: comma-separated ids of the skills you loaded before starting, or "none"
 - **STATUS**: complete | partial | blocked | escalate
-- **FINDINGS**: the answer first, then supporting detail. One line per finding, each with its source (URL, `path:line`, or command output).
+- **FINDINGS**: the answer first, then supporting detail - max 10 bullets, each with its source (URL, `path:line`, or command output)
 - **VERIFIED**: what was actually confirmed and how (page read, file opened, command output seen), separated from anything inferred
-- **GAPS**: what could not be confirmed, any interpretation chosen, or "none"
+- **GAPS**: what could not be confirmed, any interpretation chosen, or "none" - max 5
 
 ## Stop conditions
 
 <!-- Stop and escalate instead of researching when any of these is true. -->
 
-- The question is outside the research role: applying a change, deciding an approach, or reviewing a diff.
-- The answer lives in the local codebase only - that is an explore task.
+- The question is outside the research method: applying a change, deciding an approach, or reviewing a diff.
+- The answer lives in the local codebase only - that is an exploration task.
 - Sources conflict irreconcilably and the conflict changes the decision.
 - The question needs access the tooling does not have (paywalled source, authenticated API).
 - The work outgrows the spec - more files, different files, or a concern the spec did not name. Stop and report partial instead of expanding scope silently.

@@ -13,6 +13,10 @@ Per-server reference detail behind the tool-selection table in SKILL.md. Distill
 | Find source code / implementation of a paper | `github` (`search_code`, `search_repositories`), `sourcegraph` (`search`) | See paper-to-code linking below |
 | Find a maintained reference implementation | `github` (`search_repositories`) | Check stars and last commit before citing it |
 | Find latest SOTA | `semantic-scholar` (sort by year, filter last 1-2 years), `arxiv` (sort by submitted), `dblp` (year filters) | `ddgs` / Papers With Code as fallback |
+| Find a dataset or benchmark for a task | `semantic-scholar` (the paper that introduced it), `ddgs` on the benchmark's official site | Check license, split protocol, and version before citing |
+| Get a sensor or hardware specification | `ddgs` on the vendor or standards-body page, `webfetch` the datasheet | Vendor datasheet and standards documents are authoritative |
+| Read robotics framework docs (ROS 2, MoveIt, Nav2) | `ddgs` on the project docs, `github` for issues and source | Match the pinned distro version |
+| Find a reproducibility package or DOI | `github` (paper repo and release tags), `ddgs` for the Zenodo or OSF record | Prefer the DOI record for citation and archival |
 
 ## Per-tool details
 

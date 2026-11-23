@@ -1,8 +1,8 @@
 # Research-API MCP Module
 
 > Tool-selection matrix for the five research-API MCP servers wired into opencode
-> for the `sparring` and `research` subagents. Load this file with the `read`
-> tool BEFORE your first search - the sparring prompt already says to do this.
+> for the `analyst` subagent. Load this file with the `read`
+> tool BEFORE your first search - the analyst prompt already says to do this.
 
 **Trigger scenario**: Recent papers, SOTA assessment, citations, BibTeX, paper -> source code
 
@@ -63,4 +63,4 @@ To go from a paper to its reference implementation:
 - Google Scholar has NO real API (scraping violates ToS - fragile). Use `websearch`/`webfetch` as a last resort, not a primary path.
 - Prefer Semantic Scholar `citationCount` over any web claim for citation metrics.
 - `websearch`/`webfetch` remain the fallback for sources the MCP tools do not cover: Google Scholar, Papers With Code pages, blog posts, production post-mortems, vendor docs.
-- Remember: load this module with the `read` tool before your first search (the sparring prompt already instructs this).
+- Remember: load this module with the `read` tool before your first search (the analyst prompt already instructs this).

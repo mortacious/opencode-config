@@ -6,17 +6,27 @@ this repository itself also means reading REPO.md (layout, gitignore policy, edi
 
 ## The Fusion pattern
 
-Two `mode: primary` agents (`build`, `plan`) own the plan, ambiguity calls, and final review. They
-cannot edit files; every change is delegated to a `mode: subagent` shell and reviewed before it is
-accepted. Method knowledge lives in `skills/`; agent files are thin capability shells that point
-at it.
+One visible `mode: primary` agent (`orchestrator`) owns the plan, ambiguity calls, and final
+review. It cannot edit files; every change is delegated to a `mode: subagent` shell and reviewed
+before it is accepted. The roster is four capability shells plus the fanout worker: `sidekick`
+(execution, visual work, and commits), `analyst` (read-only generalist: exploration, research,
+planning, visual inspection, red-team), `reviewer` (audit gate), and `worker` (fanout only). Method
+knowledge lives in `skills/`; agent files are thin capability shells that point at it. Subagents
+cannot ask the user, so the interactive settle loop stays with the orchestrator.
 
 ## Invariants
 
-- Primaries never edit. Execution agents (`sidekick`, `design`, `worker`) never commit or push.
-  `build` is the only agent allowed to run `git add`, `git commit`, `git push`, and merges.
-- Primary `subagent` allowlist: `sidekick`, `explore`, `research`, `design`, `reviewer`,
-  `vision`, `sparring`. The built-in `general` subagent is excluded - do not route to it.
+- Primaries never edit. `orchestrator` decides when and what to commit, push, or merge, then
+  delegates execution to `sidekick` through the `fusion-commit` skill and
+  `skills/fusion-delegation-spec/templates/commit-task.md`. No other agent runs `git add`,
+  `git commit`, or `git push`, and `sidekick` never amends or forces.
+- The built-in `build` and `plan` primaries are disabled in `opencode.jsonc`
+  (`agents.build.disabled`, `agents.plan.disabled`); `default_agent` is `orchestrator`, so a bare
+  session starts in the single visible primary. `analyst` is not a picker entry: the orchestrator
+  dispatches it as a read-only subagent.
+- Primary `subagent` allowlist: `sidekick`, `analyst`, `reviewer`. `worker` is fanout-only and is
+  created by the plugin, never dispatched by an agent. The built-in `general` subagent is excluded
+  - do not route to it.
 - Primaries steer a running child with the `steer` tool (target by session id or agent name);
   subagents report important mid-task discoveries to the orchestrator with the `report` tool
   (kind `note|question|blocker`) - the inbox plus live channel in `fusion-tools`.
@@ -36,8 +46,10 @@ at it.
   the sync fails (invalid `tiers.json`, unwritable overlay). A profile with no `tiers.json` falls
   back to the base `opencode.jsonc` pins. Primaries choose a tier per delegation, default to the
   delegating agent's tier, and may override one step; the chosen tier's literal model id goes in
-  the `subagent` call's `model` parameter. `vision` is a modality constraint (image input), not a
-  reasoning size. Agent frontmatter never carries a model.
+  the `subagent` call's `model` parameter. Agent default tiers are `orchestrator=big`,
+  `sidekick`/`analyst`/`reviewer`/`worker`/`advisor=medium`, and `title=small`. `vision` is a
+  modality constraint (image input), not a reasoning size: a visual or visual-inspection task
+  runs on that tier. Agent frontmatter never carries a model.
 - Skills are advertised session-wide and filtered only by `skill` permission rules. An agent that
   needs a method loads it with the `skill` tool; restrict exposure with `skill` rules if needed.
 - Branch plan logs follow the `fusion-plan-log` skill: `.plans/<branch>.md`, live sections

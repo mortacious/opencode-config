@@ -89,3 +89,79 @@ Query strategy:
 - Prefer answers that quote the official docs or link a repro.
 
 Tool: `ddgs` with the site name in the query; `webfetch` the answer page for the full context.
+
+## Datasets and benchmarks
+
+Trigger: dataset selection, benchmark choice, leaderboard numbers, "what do people evaluate this on".
+
+Sources:
+
+- The paper that introduced the dataset or benchmark, via Semantic Scholar or arXiv.
+- The benchmark's official site and its leaderboard.
+- Dataset hosting pages: Hugging Face Datasets, Zenodo, OpenML, the project's own download page.
+
+Query strategy:
+
+- Search the task name plus "benchmark" or "dataset", then confirm the introducing paper before trusting a leaderboard.
+- Read the license and access terms: research-only, gated, or redistributable decides whether it can ship with the paper.
+- Note the version and the split protocol; a v1 and v2 leaderboard are not comparable.
+- Check whether reported baselines used the official split or a custom one.
+
+Tool: `semantic-scholar` for the introducing paper, `ddgs` for the official site, `github` when the loader or split files live in a repo.
+
+## Sensor, hardware, and standards
+
+Trigger: sensor specifications, calibration, robotics hardware, interface standards, protocol documents.
+
+Sources:
+
+- Vendor datasheets and product pages: Intel RealSense, Ouster, Velodyne, Livox, FLIR, Basler, ZED, Hesai.
+- Standards bodies and specifications: IEEE, ISO, ROS REPs, USB/Ethernet/MIPI specs.
+- Official SDK and driver repositories for the device.
+
+Query strategy:
+
+- Query the exact model number plus the field of interest (range, FOV, resolution, rate, accuracy); model numbers disambiguate better than product names.
+- Prefer the datasheet PDF over retail listings or reviews.
+- Record units, test conditions, and whether the figure is typical or guaranteed.
+- Check the SDK repo for known limitations that the datasheet omits.
+
+Tool: `ddgs` on the vendor or standards page, `webfetch` the datasheet PDF, `github` for the driver or SDK.
+
+## Robotics and ROS documentation
+
+Trigger: ROS, ROS 2, Nav2, MoveIt, Gazebo, tf2, message definitions, launch files, distro-specific behavior.
+
+Sources:
+
+- Official docs per distro (docs.ros.org, navigation.ros.org, moveit.picknik.ai).
+- Package source and issue trackers on GitHub.
+- ROS Answers and Robotics Stack Exchange.
+
+Query strategy:
+
+- Name the distro in the query (humble, jazzy, iron); behavior and APIs differ across releases.
+- Prefer the versioned docs URL over the unversioned one.
+- Check the package's GitHub for open issues when the docs are silent or stale.
+- Confirm message and frame conventions in the source, not from memory.
+
+Tool: `ddgs` on the docs site, `github` for source and issues, `webfetch` for the versioned page.
+
+## Reproducibility packages and DOIs
+
+Trigger: reference implementation, code release, archival record, "where is the code and data for this paper".
+
+Sources:
+
+- The paper's project page and its linked GitHub repository.
+- Archival records: Zenodo, OSF, figshare, Hugging Face model and dataset hubs.
+- Release tags, Docker images, and environment files inside the repo.
+
+Query strategy:
+
+- Start from the paper's abstract or project page; the official repo is usually linked there.
+- Prefer the Zenodo or OSF DOI over a bare repo URL when citing, since the DOI is versioned and archival.
+- Check the release tag or commit that matches the paper's reported numbers.
+- Look for the environment pins (requirements, lockfile, Dockerfile) that make reruns possible.
+
+Tool: `github` for the repo, `ddgs` for the Zenodo or OSF record, `webfetch` the DOI landing page.

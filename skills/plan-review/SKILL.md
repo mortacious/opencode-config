@@ -7,7 +7,7 @@ description: Use when reviewing an implementation plan before execution - checki
 
 ## Overview
 
-A plan is ready when another agent can execute it without re-deriving the decisions: the goal is measurable, the steps are ordered and specific, and its assumptions are checked against the real code rather than restated.
+A plan is ready when another agent can execute it without re-deriving the decisions: the goal is measurable, the steps are ordered and specific, and its assumptions are checked against the artifacts (code, data, prior results) rather than restated.
 
 ## When to Use
 
@@ -19,8 +19,8 @@ Do not use for diff review, style review, or for executing or editing the plan.
 
 ## Core Pattern
 
-1. Read the plan and list every claim it makes about the current code.
-2. Check those claims against the files the plan references - do not take the plan's word for the code.
+1. Read the plan and list every claim it makes about the current artifacts (code, data, prior results).
+2. Check those claims against the files the plan references - do not take the plan's word for the artifacts.
 3. Score three categories: citation quality, completeness, actionability.
 4. Assign each finding a severity, name its location (the plan step or section), and report.
 
@@ -34,12 +34,17 @@ Do not use for diff review, style review, or for executing or editing the plan.
 | No unsubstantiated claims | No "industry standard" or "best practice" without a citation |
 | Research steps show sources | Completed research tasks cite what was read |
 | Citations are verifiable | Each cited id resolves to an actual output |
+| Literature is cited | Claims about prior work or the state of the art resolve to a reference id, a DOI, or a paper section |
+| Citations are verified | Each cited work was looked up and resolved to an identifier (DOI, arXiv ID, DBLP or Semantic Scholar entry) recorded in the plan |
+| Prior results are sourced | Each baseline number names the paper table, figure, or run output it came from |
 
 Red flags:
 
 - A decisions table with empty or `-` in the source column.
 - Claims like "industry standard" with nothing behind them.
 - Research tasks marked complete with no cited source.
+- "State of the art" or "unlike prior work" with no reference behind it.
+- A citation with no identifier, or one that does not resolve on lookup.
 
 ### 2. Completeness
 
@@ -48,8 +53,12 @@ Red flags:
 | Goal is specific | Measurable outcome, not vague intent |
 | Phases are logical | Sequential, with clear progression |
 | Edge cases considered | Error handling and failure modes addressed |
-| Assumptions checked | Claims about the code match the code |
+| Assumptions checked | Claims about the artifacts (code, data, prior results) match what is actually there |
 | Decisions captured | Key choices recorded with rationale |
+| Goal is a hypothesis | The goal states a claim and the measurable metric that decides it |
+| Data provenance checked | The dataset source, license, and availability are named |
+| Compute checked | The plan fits the stated hardware and time budget |
+| Artifacts defined | The outputs - report section, figure, metrics file, code release - are named |
 
 Goal examples:
 
@@ -57,6 +66,8 @@ Goal examples:
 - Bad: "Make it better" (unmeasurable).
 - Good: "Add JWT authentication with refresh token support" (specific).
 - Good: "Migrate the user table to PostgreSQL with zero downtime" (measurable).
+- Bad: "Study segmentation quality" (no hypothesis, no metric).
+- Good: "Show temporal fusion beats the frame-only baseline by at least 2 mIoU on split B, averaged over 3 seeds" (hypothesis plus metric).
 
 ### 3. Actionability
 
@@ -67,6 +78,8 @@ Goal examples:
 | Dependencies clear | Sequential tasks show logical order |
 | Verification present | Each risky step names how it is proven |
 | Path is obvious | An executor can start without clarification |
+| Protocol is specified | Data splits, baselines, ablations, and the statistical test are named per step |
+| Verification is quantitative | Expected metric range against a named baseline plus seeds, and/or cited references resolved to an identifier |
 
 Actionability examples:
 
@@ -74,6 +87,8 @@ Actionability examples:
 - Bad: "Make it work" (no implementation path).
 - Good: "Create `src/auth/jwt.ts` with sign/verify functions" (specific file).
 - Good: "Add bcrypt password hashing to `UserService.create()`" (clear scope).
+- Bad: "Run the experiments and see what works" (no protocol).
+- Good: "Train on split A, evaluate on split B against baseline `<name>`, seeds 0-2, report mean and std to `metrics.json`" (protocol plus quantitative verification).
 
 ## Severity
 
@@ -98,7 +113,7 @@ Include at least one substantive observation, positive or negative, so the repor
 
 ## Common Mistakes
 
-- Taking the plan's description of the code as true instead of reading the files.
+- Taking the plan's description of the artifacts as true instead of reading the files.
 - Reviewing format or markdown structure instead of content quality.
 - Evaluating code style; that is diff review, not plan review.
 - Accepting a vague goal or an ambiguous task because the rest of the plan looks good.

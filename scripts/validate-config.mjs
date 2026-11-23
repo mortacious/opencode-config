@@ -30,11 +30,12 @@ import {
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(process.argv[2] ?? path.join(HERE, '..'));
 
-// Agents that exist in opencode 2.2.6 defaults and therefore need no
-// agents/<name>.md file of their own. build/plan/explore are also defaults
-// but the repo expects local agent files for them, so they are deliberately
-// NOT here: a rename or deletion must fail loudly instead of silently
-// falling back to the built-in.
+// Agents that exist in opencode defaults and therefore need no
+// agents/<name>.md file of their own. All fused agents are local files;
+// build and plan are built-in primaries the repo disables
+// (`agents.<name>.disabled: true`) rather than overriding, so they have no
+// local files. They are deliberately NOT here: a rename or deletion
+// must fail loudly instead of silently falling back to the built-in.
 const BUILTIN_AGENTS = new Set(['title', 'general', 'compaction', 'summary']);
 
 // Canonical coarse-grained permission actions (opencode v2), plus tool-id
@@ -72,8 +73,22 @@ const AGENT_FRONTMATTER_KEYS = new Set(['description', 'mode', 'permissions']);
 
 // Agents allowed to carry an unconditional {"action":"shell","resource":"*"}
 // allow rule. Every other agent file must be deny-by-default or enumerate
-// explicit read-only allows.
-const BLANKET_SHELL_AGENTS = new Set(['build', 'plan', 'sidekick', 'design', 'worker']);
+// explicit read-only allows. orchestrator replaces the old build primary;
+// analyst is a read-only generalist with a deny-by-default shell, so it is
+// absent here and its own rules are checked like any other subagent's.
+const BLANKET_SHELL_AGENTS = new Set(['orchestrator', 'sidekick', 'worker']);
+
+// A `{ "disabled": true }` entry removes a built-in agent from the config
+// (build/plan are disabled in favor of orchestrator) and carries no
+// model pin, so the pin checks skip it.
+function isDisabledPin(entry) {
+  return Boolean(
+    entry &&
+      typeof entry === 'object' &&
+      !Array.isArray(entry) &&
+      entry.disabled === true,
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Small filesystem helpers
@@ -557,6 +572,7 @@ check('every agents.* pin resolves to agents/<name>.md or a built-in', () => {
   const bad = [];
   for (const name of names) {
     if (BUILTIN_AGENTS.has(name)) continue;
+    if (isDisabledPin(pins[name])) continue;
     if (!isFile(path.join(ROOT, 'agents', `${name}.md`))) {
       bad.push(`opencode.jsonc: agents.${name} has no agents/${name}.md and is not a built-in`);
     }
@@ -850,6 +866,7 @@ check('reverse pin check: agents/ files and agents.* pins agree', () => {
   }
   for (const name of Object.keys(pins)) {
     if (BUILTIN_AGENTS.has(name)) continue;
+    if (isDisabledPin(pins[name])) continue;
     if (!fileSet.has(name)) bad.push(`agents.${name} pin has no agents/${name}.md`);
   }
   return summarize(bad, `${files.length} agent files, ${pinned.size} model pins agree`);
@@ -920,7 +937,7 @@ check('MCP tool permission actions resolve to a configured MCP server', () => {
   return summarize(bad, `${checked} tool actions resolve to ${servers.size} MCP servers`);
 });
 
-check('blanket shell allow (*) is limited to build, plan, sidekick, design, worker', () => {
+check('blanket shell allow (*) is limited to orchestrator, sidekick, worker', () => {
   const bad = [];
   let seen = 0;
   const holders = new Set();
@@ -946,46 +963,140 @@ check('blanket shell allow (*) is limited to build, plan, sidekick, design, work
   return summarize(bad);
 });
 
-check('blanket shell allow (*) partners with git commit/push denies (plan also git add)', () => {
+// Shell permission matching for the last-match simulation. opencode evaluates
+// permissions findLast: the last rule whose resource pattern matches decides.
+// `*` matches any run of characters, including none. Samples below drive the
+// guarded git write surface end to end, not just the rule spelling.
+function shellPatternMatches(pattern, command) {
+  let source = '';
+  for (const ch of pattern) {
+    if (ch === '*') source += '[\\s\\S]*';
+    else source += ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp(`^${source}$`).test(command);
+}
+
+function shellDecision(shellRules, command) {
+  let decision = null;
+  for (const rule of shellRules) {
+    if (typeof rule.resource !== 'string') continue;
+    if (!shellPatternMatches(rule.resource, command)) continue;
+    decision = rule.effect;
+  }
+  return decision;
+}
+
+// Every guard rule the sidekick surface must carry. The samples below prove the
+// net effect; this list proves no guard was dropped because a sibling pattern
+// happened to cover the same command.
+const SIDEKICK_GIT_GUARDS = [
+  'git push --force*',
+  'git push -f*',
+  'git push --mirror*',
+  'git push --delete*',
+  'git push* --force*',
+  'git push* -f*',
+  'git push* --mirror*',
+  'git push* --delete*',
+  'git push* +*',
+  'git push* :*',
+  'git push* -uf*',
+  'git push* -fu*',
+  'git push* --no-verify*',
+  'git commit* --amend*',
+  'git commit* --no-verify*',
+  'git -C* add*',
+  'git -C* commit*',
+  'git -C* push*',
+  'git -c* commit*',
+  'git -c* push*',
+  'git --git-dir*',
+  'sh -c* git*',
+  'sh -c*git*',
+  'bash -c* git*',
+  'bash -c*git*',
+];
+
+// sidekick carries the guarded git write surface (fusion-commit executes there),
+// so staging, commit, and push must allow while every dangerous form denies.
+const SIDEKICK_GIT_SAMPLES = [
+  { command: 'git add src/app.js', effect: 'allow' },
+  { command: 'git commit -m x', effect: 'allow' },
+  { command: 'git push origin main', effect: 'allow' },
+  { command: 'git status --short', effect: 'allow' },
+  { command: 'git push --force origin main', effect: 'deny' },
+  { command: 'git push -f origin main', effect: 'deny' },
+  { command: 'git push origin +main', effect: 'deny' },
+  { command: 'git push origin :b', effect: 'deny' },
+  { command: 'git push --mirror origin', effect: 'deny' },
+  { command: 'git push --delete origin b', effect: 'deny' },
+  { command: 'git commit --amend -m x', effect: 'deny' },
+  { command: 'git commit --no-verify -m x', effect: 'deny' },
+  { command: 'git -C . commit -m x', effect: 'deny' },
+  { command: 'git -c user.name=x commit -m x', effect: 'deny' },
+  { command: 'sh -c "git push"', effect: 'deny' },
+];
+
+// The orchestrator decides when and what to commit, never executes: every git
+// write verb must resolve to deny under its own findLast order.
+const ORCHESTRATOR_GIT_DENY_SAMPLES = [
+  'git add -A',
+  'git commit -m x',
+  'git push origin main',
+  'git merge x',
+  'git cherry-pick abc123',
+  'git revert abc123',
+];
+
+check('git write surface: sidekick guarded, orchestrator and other blanket shells deny', () => {
   const bad = [];
-  let holders = 0;
-  const names = [];
+  const holders = [];
   for (const file of agentMarkdownFiles()) {
     const name = path.basename(file, '.md');
     const fm = agentFrontmatter(file);
     if (!fm || !Array.isArray(fm.permissions)) continue;
-    const blanket = fm.permissions.some(
-      (rule) =>
-        rule &&
-        rule.action === 'shell' &&
-        rule.resource === '*' &&
-        rule.effect === 'allow',
+    const shellRules = fm.permissions.filter((rule) => rule && rule.action === 'shell');
+    const blanket = shellRules.some(
+      (rule) => rule.resource === '*' && rule.effect === 'allow',
     );
     if (!blanket) continue;
-    holders += 1;
-    names.push(name);
-    // build is the sole agent allowed to add/commit/push; its commit/push
-    // surface is closed by the wrapper and force/refspec denies instead of a
-    // plain deny, so it is exempt from the plain-deny requirement.
-    const required = name === 'build' ? [] : ['git commit*', 'git push*'];
-    if (name === 'plan') required.push('git add*');
-    const denied = new Set(
-      fm.permissions
-        .filter(
-          (rule) =>
-            rule && rule.action === 'shell' && rule.effect === 'deny' && typeof rule.resource === 'string',
-        )
-        .map((rule) => rule.resource),
-    );
-    for (const resource of required) {
-      if (!denied.has(resource)) {
-        bad.push(`agents/${name}.md: blanket shell allow without deny "${resource}"`);
+    holders.push(name);
+    if (name === 'sidekick') {
+      for (const guard of SIDEKICK_GIT_GUARDS) {
+        const present = shellRules.some(
+          (rule) => rule.effect === 'deny' && rule.resource === guard,
+        );
+        if (!present) {
+          bad.push(`agents/${name}.md: missing guarded git write deny "${guard}"`);
+        }
+      }
+      for (const { command, effect } of SIDEKICK_GIT_SAMPLES) {
+        const actual = shellDecision(shellRules, command);
+        if (actual !== effect) {
+          bad.push(
+            `agents/${name}.md: "${command}" resolves ${actual ?? 'unmatched'}, expected ${effect}`,
+          );
+        }
+      }
+      continue;
+    }
+    const samples =
+      name === 'orchestrator'
+        ? ORCHESTRATOR_GIT_DENY_SAMPLES
+        : ['git commit -m x', 'git push origin main'];
+    for (const command of samples) {
+      const actual = shellDecision(shellRules, command);
+      if (actual !== 'deny') {
+        bad.push(`agents/${name}.md: "${command}" resolves ${actual ?? 'unmatched'}, expected deny`);
       }
     }
   }
   if (bad.length === 0) {
-    const list = names.length === 0 ? 'none' : names.sort().join(', ');
-    return { ok: true, reason: `${holders} blanket shell agents guard git commit/push (${list})` };
+    const list = holders.length === 0 ? 'none' : holders.sort().join(', ');
+    return {
+      ok: true,
+      reason: `${holders.length} blanket shell agents: sidekick git samples pass, write verbs deny (${list})`,
+    };
   }
   return summarize(bad);
 });
@@ -1049,6 +1160,37 @@ check('profile tiers.json validates, providers/variants resolve, and overlays ma
     bad,
     `${profiles.length} tier profiles validate, ${pins} agent pins match their generated overlays`,
   );
+});
+
+check('default_agent resolves to agents/<name>.md and exactly one agent is primary', () => {
+  const cfg = loadBaseConfig().config;
+  const bad = [];
+  const defaultAgent = cfg ? cfg.default_agent : undefined;
+  if (typeof defaultAgent !== 'string' || defaultAgent.trim() === '') {
+    bad.push('opencode.jsonc: default_agent is not a non-empty string');
+  } else {
+    const name = defaultAgent.trim();
+    if (!isFile(path.join(ROOT, 'agents', `${name}.md`))) {
+      bad.push(`opencode.jsonc: default_agent "${name}" has no agents/${name}.md`);
+    }
+    const pins =
+      cfg && cfg.agents && typeof cfg.agents === 'object' && !Array.isArray(cfg.agents)
+        ? cfg.agents
+        : {};
+    if (isDisabledPin(pins[name])) {
+      bad.push(`opencode.jsonc: default_agent "${name}" is disabled (agents.${name}.disabled: true)`);
+    }
+  }
+  const primaries = [];
+  for (const file of agentMarkdownFiles()) {
+    const fm = agentFrontmatter(file);
+    if (fm && fm.values.mode === 'primary') primaries.push(path.basename(file, '.md'));
+  }
+  if (primaries.length !== 1) {
+    const list = primaries.length === 0 ? '' : ` (${primaries.sort().join(', ')})`;
+    bad.push(`${primaries.length} agents/*.md files declare mode: primary${list}`);
+  }
+  return summarize(bad, `default_agent "${String(defaultAgent)}" and one primary agent agree`);
 });
 
 // ---------------------------------------------------------------------------

@@ -6,17 +6,12 @@
     "vision": "opencode-go/gpt-5.6-luna"
   },
   "agents": {
-    "build": "big",
-    "plan": "big",
-    "sparring": "medium",
-    "reviewer": "medium",
+    "orchestrator": "big",
     "sidekick": "medium",
-    "explore": "medium",
-    "research": "medium",
-    "advisor": "medium",
+    "analyst": "medium",
+    "reviewer": "medium",
     "worker": "medium",
-    "design": "vision",
-    "vision": "vision",
+    "advisor": "medium",
     "title": "small"
   }
 }

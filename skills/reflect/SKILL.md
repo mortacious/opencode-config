@@ -31,6 +31,8 @@ Use available evidence in this order:
 4. Recent opencode sessions: session storage under `~/.local/share/opencode/` - the SQLite database `opencode.db` (tables including `session`, `message`, `part`) and the `storage/session_diff/` directory. Read only when available and safe to inspect.
 5. External docs only when the proposal depends on a third-party tool or library whose behavior needs confirmation.
 
+Non-code workspaces count as evidence too: paper drafts, notebooks, experiment configs, dataset cards, lab notes, and analysis scripts show the workflow even when there is no build or test suite to run.
+
 Respect privacy and safety boundaries. Do not inspect unrelated personal files, credentials, private messages, or external accounts unless the user explicitly asks and the workflow requires it. `opencode.jsonc` contains secrets in some provider blocks - never copy a key into a proposal, a commit message, or a summary.
 
 ## Core Contract
@@ -94,7 +96,7 @@ Pick the least powerful form that solves the repeated problem:
 - **Command:** a repeatable manual trigger with stable inputs.
 - **Custom agent:** a distinct specialist lane with clear delegation rules.
 - **MCP/tool permission change:** a safe access adjustment for an existing agent.
-- **Knowledge note:** human-readable reference for facts an agent needs on demand.
+- **Knowledge note:** human-readable reference for facts an agent needs on demand - an experiment protocol, an analysis checklist, a dataset card, or a schema an agent should consult instead of re-deriving.
 - **Skip:** weak, one-off, ambiguous, sensitive, or already-covered work.
 
 Avoid creating custom agents when a prompt rule or skill is enough. Avoid skills when a short knowledge note is enough. Avoid config changes when the benefit is unclear.

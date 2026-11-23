@@ -93,6 +93,7 @@ import {
   type ProfilePopulateInput,
   type ProfilePopulateSession,
   type ProfileSetResult,
+  type ProfileTierModelEntry,
 } from "./rpc.js";
 
 const SERVICE = "profile-switcher";
@@ -121,6 +122,10 @@ const REEVAL_DEBOUNCE_MS = 2000;
 // core config-agent transform has registered (see the initial-application
 // block in setup()).
 const SETTLE_DELAY_MS = 4000;
+
+// Fixed display/report order of the four authored model tiers in
+// profiles/<name>/tiers.json.
+const TIER_ORDER: readonly string[] = ["big", "medium", "small", "vision"];
 
 // Last directory successfully created for LOG_FILE (lazy mkdir, mirrors
 // lumo-supervisor's logDirReady).
@@ -804,6 +809,39 @@ export default Plugin.define({
       }
     }
 
+    // Tier summary for the sidebar: the ACTIVE profile's authored
+    // profiles/<name>/tiers.json ({"tiers":{big,medium,small,vision},...}).
+    // Fail-soft, never throws: a missing, unreadable, malformed, or partially
+    // invalid file returns undefined, which is the bare-profile fallback (the
+    // sidebar then renders the per-agent rows). Returns exactly four entries in
+    // fixed order big, medium, small, vision. Read locally rather than
+    // imported from another plugin (fusion-bootstrap has its own reader).
+    function currentTiers(): ProfileTierModelEntry[] | undefined {
+      try {
+        const rawText = readFileSync(
+          join(profilesDir, activeName, "tiers.json"),
+          "utf8"
+        );
+        const parsed = JSON.parse(rawText) as { tiers?: unknown };
+        const tiers = parsed?.tiers;
+        if (!tiers || typeof tiers !== "object" || Array.isArray(tiers)) {
+          return undefined;
+        }
+        const table = tiers as Record<string, unknown>;
+        const entries: ProfileTierModelEntry[] = [];
+        for (const tier of TIER_ORDER) {
+          const model = table[tier];
+          if (typeof model !== "string" || model.trim() === "") {
+            return undefined;
+          }
+          entries.push({ tier, model: model.trim() });
+        }
+        return entries;
+      } catch {
+        return undefined;
+      }
+    }
+
     let cleanedUp = false;
     let emitChanged: ((active: string) => Promise<void>) | undefined;
     let disposeRpc: (() => Promise<void>) | undefined;
@@ -1364,10 +1402,14 @@ export default Plugin.define({
         profiles.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
         return { active: activeName, profiles };
       },
-      current: async () => ({
-        active: activeName,
-        agents: currentAgentModels(),
-      }),
+      current: async () => {
+        const tiers = currentTiers();
+        return {
+          active: activeName,
+          agents: currentAgentModels(),
+          ...(tiers ? { tiers, tierProfile: activeName } : {}),
+        };
+      },
       set: async (input, context) => {
         const name = (input as { name?: unknown } | undefined)?.name;
         if (typeof name !== "string" || !isSafeProfileName(name)) {
@@ -1585,10 +1627,12 @@ export default Plugin.define({
     }
 
     emitChanged = async (active: string) => {
+      const tiers = currentTiers();
       await guardedEmit("changed", () =>
         rpcRegistration.events.emit("changed", {
           active,
           agents: currentAgentModels(),
+          ...(tiers ? { tiers, tierProfile: activeName } : {}),
         })
       );
     };

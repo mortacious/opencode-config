@@ -238,7 +238,7 @@ test("cap: a single oversized newest message is still kept", () => {
 test("render: tool calls render as one line, no results or reasoning", () => {
   const msgs = [
     M("1", "assistant", {
-      agent: "build",
+      agent: "orchestrator",
       content: [
         { type: "reasoning", text: "secret internals" },
         { type: "text", text: "let me check" },

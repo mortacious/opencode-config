@@ -395,14 +395,14 @@ test("report tool: defaults to note/next, queues, and never corrupts an existing
   const inbox = path.join(dir, "fusion-inbox.jsonl");
   writeFileSync(inbox, '{"legacy":true}'); // deliberately no trailing newline
   const { ctx, calls, sessions } = makeCtx();
-  sessions.set("ses_child", childInfo("ses_child", "ses_parent", "explore"));
+  sessions.set("ses_child", childInfo("ses_child", "ses_parent", "analyst"));
   const steer = createSteerModule({ ctx, inboxPath: inbox });
   const res = await steer.tools.report.execute(
     { message: "the API was renamed" },
     { sessionID: "ses_child" },
   );
   assert.equal(calls.prompts[0].delivery, "queue", "priority next queues");
-  assert.match(calls.prompts[0].text, /^\[report kind=note from=explore session=ses_child\] /);
+  assert.match(calls.prompts[0].text, /^\[report kind=note from=analyst session=ses_child\] /);
   assert.equal(res.metadata.kind, "note");
   assert.equal(res.metadata.priority, "next");
   const lines = readFileSync(inbox, "utf8").split("\n");
@@ -413,7 +413,7 @@ test("report tool: defaults to note/next, queues, and never corrupts an existing
   const entry = JSON.parse(entries[1]);
   assert.equal(entry.kind, "note");
   assert.equal(entry.priority, "next");
-  assert.equal(entry.agent, "explore");
+  assert.equal(entry.agent, "analyst");
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -461,7 +461,7 @@ test("command: an agent-name target picks that child, not the most recent one", 
     list: () => ({
       data: [
         childInfo("ses_side", "ses_parent", "sidekick", { busy: now - 100, idle: now - 2000 }),
-        childInfo("ses_explore", "ses_parent", "explore", { busy: now - 50, idle: now - 3000 }),
+        childInfo("ses_analyst", "ses_parent", "analyst", { busy: now - 50, idle: now - 3000 }),
       ],
     }),
   });
@@ -493,7 +493,7 @@ test("command: session id and session-id prefix targets resolve direct children"
     list: () => ({
       data: [
         childInfo("ses_child", "ses_parent", "sidekick"),
-        childInfo("ses_explore", "ses_parent", "explore"),
+        childInfo("ses_analyst", "ses_parent", "analyst"),
       ],
     }),
   });
@@ -502,9 +502,9 @@ test("command: session id and session-id prefix targets resolve direct children"
   const exact = await steer.commandText("ses_parent", "/steer ses_child check exact");
   assert.equal(exact.ok, true);
   assert.equal(calls.prompts[0].sessionID, "ses_child");
-  const prefix = await steer.commandText("ses_parent", "/steer ses_exp check prefix");
+  const prefix = await steer.commandText("ses_parent", "/steer ses_ana check prefix");
   assert.equal(prefix.ok, true);
-  assert.equal(calls.prompts[1].sessionID, "ses_explore");
+  assert.equal(calls.prompts[1].sessionID, "ses_analyst");
 });
 
 test("command: unknown session prefix refuses and lists nothing to deliver", async () => {
@@ -522,7 +522,7 @@ test("command: an ambiguous session-id prefix lists candidates and delivers noth
     list: () => ({
       data: [
         childInfo("ses_ab1", "ses_parent", "sidekick"),
-        childInfo("ses_ab2", "ses_parent", "explore"),
+        childInfo("ses_ab2", "ses_parent", "analyst"),
       ],
     }),
   });
@@ -555,7 +555,7 @@ test("command: two running children with the same agent name are refused", async
 
 test("command: a leading agent name with no matching child is part of the message", async () => {
   const { ctx, calls, sessions } = makeCtx();
-  sessions.set("ses_e", childInfo("ses_e", "ses_parent", "explore"));
+  sessions.set("ses_e", childInfo("ses_e", "ses_parent", "analyst"));
   const steer = createSteerModule({ ctx });
   steer.handleEvent(createdProps("ses_e", "ses_parent"));
   const res = await steer.commandText("ses_parent", "/steer sidekick needs to check the logs");
@@ -682,14 +682,14 @@ test("rpc: children lists direct children running first with agent and id", asyn
     list: () => ({
       data: [
         childInfo("ses_done", "ses_parent", "sidekick", { busy: now - 5000, idle: now - 1000 }),
-        childInfo("ses_live", "ses_parent", "explore", { busy: now - 100, idle: now - 2000 }),
+        childInfo("ses_live", "ses_parent", "analyst", { busy: now - 100, idle: now - 2000 }),
       ],
     }),
   });
   const steer = createSteerModule({ ctx });
   const rows = await steer.listChildrenForPicker("ses_parent");
   assert.deepEqual(rows, [
-    { sessionID: "ses_live", agent: "explore", running: true },
+    { sessionID: "ses_live", agent: "analyst", running: true },
     { sessionID: "ses_done", agent: "sidekick", running: false },
   ]);
 });

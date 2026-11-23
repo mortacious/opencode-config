@@ -25,9 +25,22 @@ export interface ProfileAgentModelEntry {
   model: string;
 }
 
+// One row of a profile's authored tier table (profiles/<name>/tiers.json):
+// the tier name and the model ref it resolves to.
+export interface ProfileTierModelEntry {
+  tier: string;
+  model: string;
+}
+
 export interface ProfileCurrentResult {
   active: string;
   agents?: ProfileAgentModelEntry[];
+  // The active profile's four tier models, in fixed order (big, medium,
+  // small, vision). Absent when the profile authors no readable tiers.json, in
+  // which case the sidebar falls back to the per-agent rows.
+  tiers?: ProfileTierModelEntry[];
+  // The profile name the tiers were read from; present exactly when tiers is.
+  tierProfile?: string;
 }
 
 export interface ProfileAppliedEntry {
@@ -45,6 +58,8 @@ export interface ProfileSetResult {
 export interface ProfileChangedEvent {
   active: string;
   agents?: ProfileAgentModelEntry[];
+  tiers?: ProfileTierModelEntry[];
+  tierProfile?: string;
 }
 
 export interface ProfilePopulateSession {
@@ -134,6 +149,19 @@ export const Profile = Rpc.define({
               additionalProperties: false,
             },
           },
+          tiers: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                tier: { type: "string" },
+                model: { type: "string" },
+              },
+              required: ["tier", "model"],
+              additionalProperties: false,
+            },
+          },
+          tierProfile: { type: "string", minLength: 1 },
         },
         required: ["active", "agents"],
         additionalProperties: false,
@@ -247,6 +275,19 @@ export const Profile = Rpc.define({
               additionalProperties: false,
             },
           },
+          tiers: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                tier: { type: "string" },
+                model: { type: "string" },
+              },
+              required: ["tier", "model"],
+              additionalProperties: false,
+            },
+          },
+          tierProfile: { type: "string", minLength: 1 },
         },
         required: ["active"],
         additionalProperties: false,

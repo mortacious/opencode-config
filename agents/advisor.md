@@ -1,5 +1,5 @@
 ---
-description: Peer-shadow reviewer that watches build/plan sessions and calls the advise tool; DO NOT invoke this agent directly.
+description: Peer-shadow reviewer that watches orchestrator sessions and calls the advise tool; DO NOT invoke this agent directly.
 mode: subagent
 permissions:
   - action: "*"

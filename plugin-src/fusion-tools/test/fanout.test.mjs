@@ -12,7 +12,7 @@
 // worker-session caller refusal, worker ruleset shape (path-scoped allows +
 // explicit denies, per-worktree interpolation), worker prompt composition,
 // context-hook fanout hiding (fusion agents AND plugin-created sessionIDs;
-// orchestrator-only: untracked non-build/plan agents also lose fanout),
+// orchestrator-only: untracked non-orchestrator agents also lose fanout),
 // the steer command, and the orphan sweep.
 //
 // Run: node --test plugin-src/fusion-tools/test/
@@ -142,7 +142,7 @@ function makeCtx(overrides = {}) {
 
   const ctx = {
     options: {
-      advisor: { enabled: true, scope: ["build", "plan"], reviewTimeoutMs: 50 },
+      advisor: { enabled: true, scope: ["orchestrator"], reviewTimeoutMs: 50 },
       fanout: {
         enabled: true,
         maxConcurrency: 8,
@@ -333,7 +333,7 @@ test("fanout happy path: real worktrees, submit results, diffStat, storage recor
           { name: "beta", task: "create b.txt containing B" },
         ],
       },
-      { sessionID: "P1", agent: "build" },
+      { sessionID: "P1", agent: "orchestrator" },
     );
     await waitUntil(() => h.calls.prompts.length === 2);
 
@@ -499,7 +499,7 @@ test("all-settled: a failed worker session does not cancel siblings", async () =
           { name: "bad", task: "do the bad thing", agent: "boom-agent" },
         ],
       },
-      { sessionID: "P1", agent: "build" },
+      { sessionID: "P1", agent: "orchestrator" },
     );
     const payload = JSON.parse(raw.content);
     assert.equal(payload.results.length, 2);
@@ -559,7 +559,7 @@ test("module-level: worktree failure for one task leaves the sibling running", a
     });
     const res = await mod.tools.fanout.execute(
       { tasks: [{ name: "good", task: "g" }, { name: "bad", task: "b" }] },
-      { sessionID: "P1", agent: "build" },
+      { sessionID: "P1", agent: "orchestrator" },
     );
     const payload = JSON.parse(res.content);
     assert.equal(payload.results[0].status, "completed");
@@ -597,7 +597,7 @@ test("timeout: the worker is interrupted and the task is marked timeout", async 
     const submitTool = h.tools.find((t) => t.name === "submit_result");
     const raw = await fanoutTool.execute(
       { tasks: [{ name: "slow", task: "never finishes" }] },
-      { sessionID: "P1", agent: "build" },
+      { sessionID: "P1", agent: "orchestrator" },
     );
     const payload = JSON.parse(raw.content);
     assert.equal(payload.results[0].status, "timeout");
@@ -647,7 +647,7 @@ test("worker ruleset shape: scoped allows + explicit denies, interpolated per wo
     // The run times out quickly; only the create-call permissions matter here.
     await fanoutTool.execute(
       { tasks: [{ name: "One", task: "t1" }, { name: "Two", task: "t2" }] },
-      { sessionID: "P1", agent: "build" },
+      { sessionID: "P1", agent: "orchestrator" },
     );
     assert.equal(h.calls.creates.length, 2);
     for (const c of h.calls.creates) {
@@ -704,14 +704,14 @@ test("fanout refuses calls from a plugin-created worker session (registry gate)"
     const fanoutTool = h.tools.find((t) => t.name === "fanout");
     const runP = fanoutTool.execute(
       { tasks: [{ name: "alpha", task: "do alpha" }] },
-      { sessionID: "P1", agent: "build" },
+      { sessionID: "P1", agent: "orchestrator" },
     );
     await waitUntil(() => h.calls.prompts.length === 1);
-    // The worker session calls fanout again; the agent name ("build") is a
-    // red herring - the registry gate keys on the caller sessionID.
+    // The worker session calls fanout again; the agent name ("plain-agent")
+    // is a red herring - the registry gate keys on the caller sessionID.
     const res = await fanoutTool.execute(
       { tasks: [{ task: "nested" }] },
-      { sessionID: "worker-ses-1", agent: "build" },
+      { sessionID: "worker-ses-1", agent: "plain-agent" },
     );
     assert.match(res.content, /worker sessions created by fanout cannot fan out again/);
     assert.match(res.content, /report with submit_result/);
@@ -737,13 +737,13 @@ test("context hook strips fanout for plugin-created sessionIDs regardless of age
     const fanoutTool = h.tools.find((t) => t.name === "fanout");
     const runP = fanoutTool.execute(
       { tasks: [{ name: "alpha", task: "do alpha" }] },
-      { sessionID: "P1", agent: "build" },
+      { sessionID: "P1", agent: "orchestrator" },
     );
     await waitUntil(() => h.calls.prompts.length === 1);
     // plugin-created worker session, non-fusion agent name: fanout is
     // stripped by sessionID, submit_result is injected.
     const workerInput = {
-      agent: "build",
+      agent: "plain-agent",
       sessionID: "worker-ses-1",
       tools: { fanout: { d: 1 }, read: { d: 2 } },
     };
@@ -752,7 +752,7 @@ test("context hook strips fanout for plugin-created sessionIDs regardless of age
     assert.ok(workerInput.tools.submit_result, "worker keeps submit_result");
     assert.ok(workerInput.tools.read, "other tools untouched");
     // a plain (non-plugin-created) session with the same agent keeps fanout
-    const plain = { agent: "build", sessionID: "P1", tools: { fanout: { d: 1 } } };
+    const plain = { agent: "orchestrator", sessionID: "P1", tools: { fanout: { d: 1 } } };
     h.hooks.context(plain);
     assert.ok(plain.tools.fanout, "caller session keeps fanout");
     h.waitResolvers.get("worker-ses-1")();
@@ -786,7 +786,7 @@ test("submit_result accepts non-object data when the schema permits it", async (
           { name: "str", task: "t2", outputSchema: { type: "string" } },
         ],
       },
-      { sessionID: "P1", agent: "build" },
+      { sessionID: "P1", agent: "orchestrator" },
     );
     await waitUntil(() => h.calls.prompts.length === 2);
     const freeSession = h.calls.prompts.find((p) => p.text.includes("t1")).sessionID;
@@ -824,7 +824,7 @@ test("fanout rejected when the caller location is not a git repo", async () => {
     const fanoutTool = h.tools.find((t) => t.name === "fanout");
     const res = await fanoutTool.execute(
       { tasks: [{ task: "x" }] },
-      { sessionID: "P1", agent: "build" },
+      { sessionID: "P1", agent: "orchestrator" },
     );
     assert.match(res.content, /not inside a git repository/);
     assert.equal(h.calls.creates.length, 0);
@@ -860,7 +860,7 @@ async function submitFixture({ schemaMode, hang = true } = {}) {
     outputSchema: FILE_SCHEMA,
     schemaMode,
   };
-  const fanoutP = fanoutTool.execute({ tasks: [task] }, { sessionID: "P1", agent: "build" });
+  const fanoutP = fanoutTool.execute({ tasks: [task] }, { sessionID: "P1", agent: "orchestrator" });
   await waitUntil(() => h.calls.prompts.length === 1);
   const release = () => {
     const r = h.waitResolvers.get("worker-ses-1");
@@ -1051,7 +1051,7 @@ test("context hook shapes fusion-agent tools: hides fanout, injects submit_resul
   await settle();
 });
 
-test("fanout is orchestrator-only: stripped for sidekick, kept for build/plan", async () => {
+test("fanout is orchestrator-only: stripped for sidekick and analyst, kept for orchestrator", async () => {
   const h = makeCtx();
   const cleanup = await plugin.setup(h.ctx);
   try {
@@ -1070,13 +1070,14 @@ test("fanout is orchestrator-only: stripped for sidekick, kept for build/plan", 
       undefined,
       "no submit_result injection for plain agents",
     );
-    // the orchestrator primaries keep it
-    const build = { agent: "build", sessionID: "P1", tools: { fanout: { d: 1 } } };
-    h.hooks.context(build);
-    assert.ok(build.tools.fanout, "build keeps fanout");
-    const plan = { agent: "plan", sessionID: "P2", tools: { fanout: { d: 1 } } };
-    h.hooks.context(plan);
-    assert.ok(plan.tools.fanout, "plan keeps fanout");
+    // the orchestrator keeps it
+    const orchestrator = { agent: "orchestrator", sessionID: "P1", tools: { fanout: { d: 1 } } };
+    h.hooks.context(orchestrator);
+    assert.ok(orchestrator.tools.fanout, "orchestrator keeps fanout");
+    // analyst is an ordinary child: no fanout
+    const analyst = { agent: "analyst", sessionID: "P2", tools: { fanout: { d: 1 } } };
+    h.hooks.context(analyst);
+    assert.equal(analyst.tools.fanout, undefined, "fanout stripped for analyst");
     // inputs without a tools record never throw
     h.hooks.context({ agent: "sidekick", sessionID: "S3" });
   } finally {

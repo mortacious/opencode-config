@@ -1,6 +1,6 @@
-# Explore Task Template
+# Exploration Task Template
 
-Copy this into a `subagent` delegation for explore. Every section is required: fill it, or write "none" with a reason. Delete the guidance italic lines before sending.
+Copy this into a `subagent` delegation to analyst for codebase exploration. Every section is required: fill it, or write "none" with a reason. Delete the guidance italic lines before sending.
 
 ## Objective
 
@@ -10,7 +10,7 @@ _Map <area> so that <decision> can be made._
 
 ## Files
 
-<!-- Where to start and where not to waste time. Exact paths when known; directory hints when not. Explore reads, never edits. -->
+<!-- Where to start and where not to waste time. Exact paths when known; directory hints when not. Analyst reads, never edits. -->
 
 - Start at: `path/to/dir-or-file`
 - Likely relevant: `path/to/file`
@@ -44,7 +44,7 @@ _Map <area> so that <decision> can be made._
 
 ## Verification
 
-<!-- How the explorer confirms the answer is complete rather than a lucky hit. -->
+<!-- How the analyst confirms the answer is complete rather than a lucky hit. -->
 
 - Every claimed location was opened and read, not inferred from a filename.
 - Every call edge reported was confirmed in the source.
@@ -52,33 +52,35 @@ _Map <area> so that <decision> can be made._
 
 ## Skills to load
 
-<!-- Skill names the explorer must load before starting. -->
+<!-- Skill names the analyst must load before starting. -->
 
 - none
 
 ## Model tier
 
-<!-- REQUIRED: one of big | medium | small | vision. Explorer's default tier is medium; a narrow single-file lookup may use small. Name the overriding tier's model id from the injected Model tiers table. -->
+<!-- REQUIRED: one of big | medium | small | vision. Analyst's default tier is medium; a narrow single-file lookup may use small. Name the overriding tier's model id from the injected Model tiers table. -->
 
 - Tier: big | medium | small | vision
 - Model override: `<provider>/<model>` from the injected table, or "none - default"
 
 ## Report contract
 
-<!-- What the explorer must return. -->
+<!-- What the analyst must return. -->
+
+Condensed report - this is input for an expensive orchestrator; no bulk output.
 
 - **SKILLS**: comma-separated ids of the skills you loaded before starting, or "none" (usually "none" - skill loads are not part of exploration)
 - **STATUS**: complete | partial | blocked
-- **FINDINGS**: the answer first, then the map: files, `path:line` locations, call paths, and one-line roles
+- **FINDINGS**: the answer first, then the map - max 10 bullets, each with a citation or `path:line` location; one line per role
 - **VERIFIED**: what was read or run to confirm, separated from inference
-- **GAPS**: what was not covered at the requested thoroughness and why, or "none"
+- **GAPS**: what was not covered at the requested thoroughness and why, or "none" - max 5
 
 ## Stop conditions
 
 <!-- Stop and escalate instead of guessing when any of these is true. -->
 
 - The requested area does not exist under the given paths - report where the search was run.
-- The question requires running code or tests (outside the read-only explore role).
+- The question requires running code or tests (outside the read-only analyst role).
 - Two files disagree about the contract and no single answer is possible.
 - The requested thoroughness cannot be met within reasonable effort - report the partial map.
 - The work outgrows the spec - more files, different files, or a concern the spec did not name. Stop and report partial instead of expanding scope silently.

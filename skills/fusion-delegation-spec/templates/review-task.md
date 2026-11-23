@@ -61,11 +61,14 @@ _Expected: <what the output should show>._
 
 <!-- What the reviewer must return. -->
 
+Condensed report - this is input for an expensive orchestrator; no bulk output.
+
 - **SKILLS**: comma-separated ids of the skills you loaded before starting, or "none"
 - **STATUS**: pass | changes needed | blocked | escalate
-- **FINDINGS**: one line per issue, ordered blocker first, each tagged `[blocker]`, `[concern]`, or `[nit]`, with `file:line` (or the plan step) and the concrete fix. "none" if the work passes.
+- **FINDINGS**: max 10 findings, each at most 2 lines, ordered blocker first, each tagged `[blocker]`, `[concern]`, or `[nit]`, with `file:line` (or the plan step) and the concrete fix. No code quote longer than 3 lines. "none" if the work passes.
 - **VERIFIED**: the exact commands run and their real outcome, separated from anything inferred
 - **GAPS**: what could not be judged and why, or "none"
+- End with the verdict line.
 
 ## Stop conditions
 

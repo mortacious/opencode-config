@@ -104,7 +104,7 @@ function makeCtx(overrides = {}) {
       advisor: {
         enabled: true,
         model: "opencode-go/deepseek-v4.1-flash",
-        scope: ["build", "plan"],
+        scope: ["orchestrator"],
         reviewTimeoutMs: 50,
         ...(overrides.advisor || {}),
       },
@@ -218,7 +218,7 @@ test("idle-complex skips mid-turn triggers (metrics recorded, no review)", async
   h.setContextMessages([{ id: "m1", type: "user", text: "turn content" }]);
   const cleanup = await plugin.setup(h.ctx);
   try {
-    h.hooks.context({ sessionID: "P-mid", agent: "build", messages: [{ role: "user" }] });
+    h.hooks.context({ sessionID: "P-mid", agent: "orchestrator", messages: [{ role: "user" }] });
     await settle();
     await settle();
 
@@ -229,7 +229,7 @@ test("idle-complex skips mid-turn triggers (metrics recorded, no review)", async
     const logText = await readLog();
     assert.match(
       logText,
-      /"msg":"context hook \(primary turn\)","primarySessionID":"P-mid","agent":"build","turnSteps":1/,
+      /"msg":"context hook \(primary turn\)","primarySessionID":"P-mid","agent":"orchestrator","turnSteps":1/,
     );
   } finally {
     await cleanup();
@@ -243,7 +243,7 @@ test("idle-complex: idle review fires above the steps threshold", async () => {
   const cleanup = await plugin.setup(h.ctx);
   try {
     for (let i = 0; i < 3; i++) {
-      h.hooks.context({ sessionID: "P-steps", agent: "build", messages: [] });
+      h.hooks.context({ sessionID: "P-steps", agent: "orchestrator", messages: [] });
     }
     assert.equal(advisorPrompts(h.calls).length, 0, "still no mid-turn review");
     h.pushEvent({ type: "session.idle", data: { sessionID: "P-steps" } });
@@ -261,7 +261,7 @@ test("idle-complex: idle review fires above the delta-chars threshold", async ()
   const cleanup = await plugin.setup(h.ctx);
   try {
     // a single step, but the outbound payload exceeds the chars threshold
-    h.hooks.context({ sessionID: "P-chars", agent: "build", messages: bigMessages(2000) });
+    h.hooks.context({ sessionID: "P-chars", agent: "orchestrator", messages: bigMessages(2000) });
     assert.equal(advisorPrompts(h.calls).length, 0);
     h.pushEvent({ type: "session.idle", data: { sessionID: "P-chars" } });
     await waitUntil(() => advisorPrompts(h.calls).length === 1);
@@ -279,7 +279,7 @@ test("idle-complex: below thresholds -> cursor advance + skip log, no review", a
   ]);
   const cleanup = await plugin.setup(h.ctx);
   try {
-    h.hooks.context({ sessionID: "P-small", agent: "build", messages: [{ role: "user", content: "hi" }] });
+    h.hooks.context({ sessionID: "P-small", agent: "orchestrator", messages: [{ role: "user", content: "hi" }] });
     h.pushEvent({ type: "session.idle", data: { sessionID: "P-small" } });
     await settle();
     await settle();
@@ -314,7 +314,7 @@ test("/advisor on forces reviews below threshold", async () => {
     assert.match(h.calls.synthetics[0].text, /forced ON/);
     assert.deepEqual(h.storageMap.get(OVERRIDE_PREFIX + "P-force"), { override: "on" });
 
-    h.hooks.context({ sessionID: "P-force", agent: "build", messages: [{ role: "user" }] });
+    h.hooks.context({ sessionID: "P-force", agent: "orchestrator", messages: [{ role: "user" }] });
     h.pushEvent({ type: "session.idle", data: { sessionID: "P-force" } });
     await waitUntil(() => advisorPrompts(h.calls).length === 1, "forced-on reviews despite sub-threshold turn");
   } finally {
@@ -333,7 +333,7 @@ test("/advisor off suppresses everything for that session", async () => {
     await settle();
 
     // mid-turn: suppressed even in "always" mode
-    h.hooks.context({ sessionID: "P-quiet", agent: "build", messages: bigMessages(9000) });
+    h.hooks.context({ sessionID: "P-quiet", agent: "orchestrator", messages: bigMessages(9000) });
     await settle();
     assert.equal(advisorPrompts(h.calls).length, 0);
 
@@ -360,7 +360,7 @@ test("activation off registers the advise tool + command but no triggers", async
     assert.ok(h.tools.find((t) => t.name === "advise"), "advise tool still registered");
     assert.ok(h.commands.find((c) => c.name === "advisor"), "advisor command still registered");
 
-    h.hooks.context({ sessionID: "P-off", agent: "build", messages: bigMessages(9000) });
+    h.hooks.context({ sessionID: "P-off", agent: "orchestrator", messages: bigMessages(9000) });
     await settle();
     h.pushEvent({ type: "session.idle", data: { sessionID: "P-off" } });
     await settle();
@@ -371,7 +371,7 @@ test("activation off registers the advise tool + command but no triggers", async
     // even a forced-on session gets no reviews while activation is off
     const cmd = h.commands.find((c) => c.name === "advisor");
     await cmd.execute({ sessionID: "P-off-on", prompt: { text: "on" } });
-    h.hooks.context({ sessionID: "P-off-on", agent: "build", messages: bigMessages(9000) });
+    h.hooks.context({ sessionID: "P-off-on", agent: "orchestrator", messages: bigMessages(9000) });
     h.pushEvent({ type: "session.idle", data: { sessionID: "P-off-on" } });
     await settle();
     await settle();
@@ -387,7 +387,7 @@ test("activation always keeps mid-turn reviews (legacy behavior)", async () => {
   h.setContextMessages([{ id: "m1", type: "user", text: "turn content" }]);
   const cleanup = await plugin.setup(h.ctx);
   try {
-    h.hooks.context({ sessionID: "P-always", agent: "build", messages: [] });
+    h.hooks.context({ sessionID: "P-always", agent: "orchestrator", messages: [] });
     await waitUntil(() => advisorPrompts(h.calls).length === 1);
     assert.equal(h.calls.advisorCreate.length, 1);
   } finally {
@@ -421,7 +421,7 @@ test("circuit breaker: trips after 3 consecutive failures, pauses, recovers", as
     // and the wait rejection is recorded as a failure.
     for (let i = 0; i < 3; i++) {
       h.setContextMessages([{ id: "m" + i, type: "user", text: "turn " + i + " content" }]);
-      h.hooks.context({ sessionID: "P-breaker", agent: "build", messages: [] });
+      h.hooks.context({ sessionID: "P-breaker", agent: "orchestrator", messages: [] });
       await waitUntil(() => waitErrors >= i + 1);
       await settle();
     }
@@ -429,7 +429,7 @@ test("circuit breaker: trips after 3 consecutive failures, pauses, recovers", as
     assert.match(logText, /"msg":"advisor breaker tripped \(reviews paused\)"/);
 
     // while paused: hooks skip with one log line, no new reviews
-    h.hooks.context({ sessionID: "P-breaker", agent: "build", messages: [] });
+    h.hooks.context({ sessionID: "P-breaker", agent: "orchestrator", messages: [] });
     await settle();
     logText = await readLog();
     assert.match(logText, /"msg":"advisor reviews paused \(breaker\); review skipped","primarySessionID":"P-breaker"/);
@@ -439,7 +439,7 @@ test("circuit breaker: trips after 3 consecutive failures, pauses, recovers", as
     await new Promise((r) => setTimeout(r, 80));
     waitBehavior = "resolve";
     h.setContextMessages([{ id: "rec", type: "user", text: "recovery turn content" }]);
-    h.hooks.context({ sessionID: "P-breaker", agent: "build", messages: [] });
+    h.hooks.context({ sessionID: "P-breaker", agent: "orchestrator", messages: [] });
     await waitUntil(() => advisorPrompts(h.calls).length > promptsWhilePaused);
     // recovery is observable: the pause expired (re-armed) and the review finished
     const afterPauseLog = await readLog();
@@ -474,14 +474,14 @@ test("circuit breaker: a success resets the failure count", async () => {
     // 2 failures (fresh content per turn so each review actually prompts)
     for (let i = 0; i < 2; i++) {
       h.setContextMessages([{ id: "m" + i, type: "user", text: "turn " + i + " content" }]);
-      h.hooks.context({ sessionID: "P-reset", agent: "build", messages: [] });
+      h.hooks.context({ sessionID: "P-reset", agent: "orchestrator", messages: [] });
       await waitUntil(() => waitErrors >= i + 1);
       await settle();
     }
     // ...then a success (fresh content so the review has a delta)
     waitBehavior = "resolve";
     h.setContextMessages([{ id: "ok", type: "user", text: "recovery turn content" }]);
-    h.hooks.context({ sessionID: "P-reset", agent: "build", messages: [] });
+    h.hooks.context({ sessionID: "P-reset", agent: "orchestrator", messages: [] });
     await waitUntil(() => readLogSync().includes('"msg":"advisor breaker reset (review succeeded)"'));
     await settle();
 
@@ -502,7 +502,7 @@ test("circuit breaker: a success resets the failure count", async () => {
     };
     for (let i = 0; i < 2; i++) {
       h.setContextMessages([{ id: "n" + i, type: "user", text: "post-reset turn " + i }]);
-      h.hooks.context({ sessionID: "P-reset", agent: "build", messages: [] });
+      h.hooks.context({ sessionID: "P-reset", agent: "orchestrator", messages: [] });
       await waitUntil(() => waitErrors >= 3 + i);
       await settle();
     }
@@ -538,7 +538,7 @@ test("/advisor command: on, off, status, and unknown argument", async () => {
     assert.match(feedback.text, /forced ON/);
 
     // a review runs (forced-on), then status reflects the count
-    h.hooks.context({ sessionID: "P-cmd", agent: "build", messages: [] });
+    h.hooks.context({ sessionID: "P-cmd", agent: "orchestrator", messages: [] });
     h.pushEvent({ type: "session.idle", data: { sessionID: "P-cmd" } });
     await waitUntil(() => advisorPrompts(h.calls).length === 1);
     await settle();
@@ -568,7 +568,7 @@ test("/advisor command: on, off, status, and unknown argument", async () => {
       { id: "m1", type: "user", text: "turn content" },
       { id: "m2", type: "synthetic", text: "advisor: reviews suppressed for this session.", metadata: { fusionTools: "advisor-note" } },
     ]);
-    h.hooks.context({ sessionID: "P-cmd", agent: "build", messages: [] });
+    h.hooks.context({ sessionID: "P-cmd", agent: "orchestrator", messages: [] });
     h.pushEvent({ type: "session.idle", data: { sessionID: "P-cmd" } });
     await settle();
     await settle();
@@ -602,7 +602,7 @@ test("overrides rehydrate from storage after a plugin reload", async () => {
     assert.match(logText, /"msg":"rehydrated advisor mappings from storage"[^]*?"overrides":1/);
 
     // the rehydrated "on" override bypasses the threshold at idle
-    h.hooks.context({ sessionID: "P-keep", agent: "build", messages: [{ role: "user" }] });
+    h.hooks.context({ sessionID: "P-keep", agent: "orchestrator", messages: [{ role: "user" }] });
     h.pushEvent({ type: "session.idle", data: { sessionID: "P-keep" } });
     await waitUntil(() => advisorPrompts(h.calls).length === 1);
   } finally {

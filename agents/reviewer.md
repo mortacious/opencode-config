@@ -15,62 +15,20 @@ permissions:
     resource: "*"
     effect: deny
   - action: subagent
-    resource: "explore"
+    resource: "analyst"
     effect: allow
+  # Shell: deny by default, then allow by family. Permissions evaluate
+  # findLast (last matching rule wins), so this block reads top to bottom as
+  # general allow -> specific deny -> specific re-allow.
   - action: shell
     resource: "*"
     effect: deny
+  # git* is only safe because every mutating subcommand is denied below, after
+  # this allow. Any new git verb must get its own deny in the git-write group.
   - action: shell
-    resource: "git diff*"
+    resource: "git*"
     effect: allow
-  - action: shell
-    resource: "git status*"
-    effect: allow
-  - action: shell
-    resource: "git log*"
-    effect: allow
-  - action: shell
-    resource: "git show*"
-    effect: allow
-  - action: shell
-    resource: "git ls-files*"
-    effect: allow
-  - action: shell
-    resource: "git branch"
-    effect: allow
-  - action: shell
-    resource: "git branch --show-current*"
-    effect: allow
-  - action: shell
-    resource: "git branch --list*"
-    effect: allow
-  - action: shell
-    resource: "git branch -a*"
-    effect: allow
-  - action: shell
-    resource: "git branch -v*"
-    effect: allow
-  - action: shell
-    resource: "git stash list*"
-    effect: allow
-  - action: shell
-    resource: "npm run lint*"
-    effect: allow
-  - action: shell
-    resource: "npm test*"
-    effect: allow
-  - action: shell
-    resource: "npx vitest run*"
-    effect: allow
-  - action: shell
-    resource: "pytest*"
-    effect: allow
-  - action: shell
-    resource: "python -m pytest*"
-    effect: allow
-  - action: shell
-    resource: "node --check*"
-    effect: allow
+  # Inspection families.
   - action: shell
     resource: "cat*"
     effect: allow
@@ -90,6 +48,170 @@ permissions:
     resource: "grep*"
     effect: allow
   - action: shell
+    resource: "rg*"
+    effect: allow
+  - action: shell
+    resource: "find*"
+    effect: allow
+  - action: shell
+    resource: "sed -n*"
+    effect: allow
+  - action: shell
+    resource: "awk*"
+    effect: allow
+  - action: shell
+    resource: "sort*"
+    effect: allow
+  - action: shell
+    resource: "uniq*"
+    effect: allow
+  - action: shell
+    resource: "cut*"
+    effect: allow
+  - action: shell
+    resource: "tr*"
+    effect: allow
+  - action: shell
+    resource: "stat*"
+    effect: allow
+  - action: shell
+    resource: "file*"
+    effect: allow
+  - action: shell
+    resource: "diff*"
+    effect: allow
+  - action: shell
+    resource: "jq*"
+    effect: allow
+  - action: shell
+    resource: "strings*"
+    effect: allow
+  - action: shell
+    resource: "xxd*"
+    effect: allow
+  - action: shell
+    resource: "od*"
+    effect: allow
+  - action: shell
+    resource: "hexdump*"
+    effect: allow
+  - action: shell
+    resource: "tree*"
+    effect: allow
+  - action: shell
+    resource: "du*"
+    effect: allow
+  - action: shell
+    resource: "df*"
+    effect: allow
+  - action: shell
+    resource: "cmp*"
+    effect: allow
+  - action: shell
+    resource: "comm*"
+    effect: allow
+  - action: shell
+    resource: "column*"
+    effect: allow
+  - action: shell
+    resource: "basename*"
+    effect: allow
+  - action: shell
+    resource: "dirname*"
+    effect: allow
+  - action: shell
+    resource: "realpath*"
+    effect: allow
+  - action: shell
+    resource: "readlink*"
+    effect: allow
+  - action: shell
+    resource: "which*"
+    effect: allow
+  # Project gates.
+  - action: shell
+    resource: "npm run lint*"
+    effect: allow
+  - action: shell
+    resource: "npm run typecheck*"
+    effect: allow
+  - action: shell
+    resource: "npm run check*"
+    effect: allow
+  - action: shell
+    resource: "npm test*"
+    effect: allow
+  - action: shell
+    resource: "npx vitest run*"
+    effect: allow
+  - action: shell
+    resource: "pytest*"
+    effect: allow
+  - action: shell
+    resource: "python -m pytest*"
+    effect: allow
+  - action: shell
+    resource: "python3 -m pytest*"
+    effect: allow
+  - action: shell
+    resource: "node --check*"
+    effect: allow
+  - action: shell
+    resource: "cargo test*"
+    effect: allow
+  - action: shell
+    resource: "cargo clippy*"
+    effect: allow
+  - action: shell
+    resource: "go test*"
+    effect: allow
+  - action: shell
+    resource: "go vet*"
+    effect: allow
+  - action: shell
+    resource: "make lint*"
+    effect: allow
+  - action: shell
+    resource: "make test*"
+    effect: allow
+  # git write verbs: everything that mutates the repo or its metadata.
+  - action: shell
+    resource: "git add*"
+    effect: deny
+  - action: shell
+    resource: "git commit*"
+    effect: deny
+  - action: shell
+    resource: "git push*"
+    effect: deny
+  - action: shell
+    resource: "git merge*"
+    effect: deny
+  - action: shell
+    resource: "git rebase*"
+    effect: deny
+  - action: shell
+    resource: "git reset*"
+    effect: deny
+  - action: shell
+    resource: "git clean*"
+    effect: deny
+  - action: shell
+    resource: "git checkout*"
+    effect: deny
+  - action: shell
+    resource: "git switch*"
+    effect: deny
+  - action: shell
+    resource: "git restore*"
+    effect: deny
+  - action: shell
+    resource: "git stash*"
+    effect: deny
+  - action: shell
+    resource: "git config*"
+    effect: deny
+  - action: shell
     resource: "git branch -D*"
     effect: deny
   - action: shell
@@ -99,19 +221,70 @@ permissions:
     resource: "git branch --delete*"
     effect: deny
   - action: shell
-    resource: "git commit*"
+    resource: "git branch -f*"
     effect: deny
   - action: shell
-    resource: "git push*"
+    resource: "git branch -m*"
     effect: deny
   - action: shell
-    resource: "cat >*"
+    resource: "git branch -M*"
     effect: deny
   - action: shell
-    resource: "head >*"
+    resource: "git tag -d*"
     effect: deny
   - action: shell
-    resource: "tail >*"
+    resource: "git remote add*"
+    effect: deny
+  - action: shell
+    resource: "git remote remove*"
+    effect: deny
+  - action: shell
+    resource: "git remote set-url*"
+    effect: deny
+  - action: shell
+    resource: "git remote prune*"
+    effect: deny
+  - action: shell
+    resource: "git apply*"
+    effect: deny
+  - action: shell
+    resource: "git am*"
+    effect: deny
+  - action: shell
+    resource: "git cherry-pick*"
+    effect: deny
+  - action: shell
+    resource: "git revert*"
+    effect: deny
+  - action: shell
+    resource: "git notes*"
+    effect: deny
+  - action: shell
+    resource: "git worktree add*"
+    effect: deny
+  - action: shell
+    resource: "git worktree remove*"
+    effect: deny
+  - action: shell
+    resource: "git worktree prune*"
+    effect: deny
+  - action: shell
+    resource: "git init*"
+    effect: deny
+  - action: shell
+    resource: "git clone*"
+    effect: deny
+  - action: shell
+    resource: "git gc*"
+    effect: deny
+  - action: shell
+    resource: "git submodule*"
+    effect: deny
+  - action: shell
+    resource: "git lfs*"
+    effect: deny
+  - action: shell
+    resource: "git sparse-checkout*"
     effect: deny
   - action: shell
     resource: "git diff --output*"
@@ -122,6 +295,39 @@ permissions:
   - action: shell
     resource: "git show --output*"
     effect: deny
+  # Read-only exceptions carved back out of the denies above.
+  - action: shell
+    resource: "git stash list*"
+    effect: allow
+  - action: shell
+    resource: "git config --get*"
+    effect: allow
+  - action: shell
+    resource: "git config --list*"
+    effect: allow
+  - action: shell
+    resource: "git config -l*"
+    effect: allow
+  # Tool-safety denies: commands whose flags delete or execute.
+  - action: shell
+    resource: "find* -delete*"
+    effect: deny
+  - action: shell
+    resource: "find* -exec*"
+    effect: deny
+  - action: shell
+    resource: "find* -fprint*"
+    effect: deny
+  - action: shell
+    resource: "find* -ok*"
+    effect: deny
+  - action: shell
+    resource: "sed -i*"
+    effect: deny
+  - action: shell
+    resource: "sed --in-place*"
+    effect: deny
+  # Gate flags that write: fixes, snapshot updates, in-place edits.
   - action: shell
     resource: "npm run lint *--fix*"
     effect: deny
@@ -143,20 +349,22 @@ permissions:
   - action: shell
     resource: "npx vitest run * --update*"
     effect: deny
+  # Secrets.
   - action: shell
     resource: "head *.env*"
     effect: deny
   - action: shell
     resource: "cat *.env*"
     effect: deny
+  # Redirect writes are last: any command carrying ">" is denied.
   - action: shell
-    resource: "git branch -f*"
+    resource: "cat >*"
     effect: deny
   - action: shell
-    resource: "git branch -m*"
+    resource: "head >*"
     effect: deny
   - action: shell
-    resource: "git branch -M*"
+    resource: "tail >*"
     effect: deny
   - action: shell
     resource: "*>*"
@@ -175,7 +383,9 @@ implementation or audit a diff before commit, and you never edit files.
 - Grep and glob skip gitignored paths; zero matches there is not proof of absence.
 - A denied command is a boundary, not a puzzle. Run an allowed command that answers the same
   question, or report what you would need in GAPS.
-- Redirecting allowed commands to files (`cat > x`) is forbidden; the audit log catches it.
+- Redirecting allowed commands to files (`cat > x`) is forbidden; the audit log catches it. Run
+  single commands with the `workdir` parameter instead of `cd`; if a read-only command you need is
+  denied, name it in your findings instead of working around it.
 
 ## Findings
 - Severity is exactly `blocker`, `concern`, or `nit` - never invent others. Nits never change a

@@ -40,7 +40,7 @@ after(() => {
   }
 });
 
-const AGENT_FILES = ["build", "plan", "worker", "design", "vision"];
+const AGENT_FILES = ["orchestrator", "sidekick", "analyst", "reviewer", "worker"];
 
 const TIERS = {
   tiers: {
@@ -50,11 +50,11 @@ const TIERS = {
     vision: "test-provider/vision-model",
   },
   agents: {
-    build: "big",
-    plan: "big",
+    orchestrator: "big",
+    sidekick: "medium",
+    analyst: "medium",
+    reviewer: "medium",
     worker: "medium",
-    design: "vision",
-    vision: "vision",
     title: "small",
   },
 };
@@ -105,17 +105,17 @@ test("expansion writes the generated overlay shape and re-sync is a no-op", () =
   assert.deepEqual(config, {
     $schema: "https://opencode.ai/config.json",
     agents: {
-      build: { model: "test-provider/big-model#max" },
-      plan: { model: "test-provider/big-model#max" },
+      orchestrator: { model: "test-provider/big-model#max" },
+      sidekick: { model: "test-provider/medium-model" },
+      analyst: { model: "test-provider/medium-model" },
+      reviewer: { model: "test-provider/medium-model" },
       worker: { model: "test-provider/medium-model" },
-      design: { model: "test-provider/vision-model" },
-      vision: { model: "test-provider/vision-model" },
       title: { model: "test-provider/small-model" },
     },
     small_model: "test-provider/small-model",
   });
   assert.match(text, /^ {2}"agents": \{$/m);
-  assert.match(text, /^ {4}"build": \{ "model": "test-provider\/big-model#max" \},$/m);
+  assert.match(text, /^ {4}"orchestrator": \{ "model": "test-provider\/big-model#max" \},$/m);
 
   const second = run(root, ["--profile", "demo"]);
   assert.equal(second.status, 0, second.stderr);
@@ -171,10 +171,10 @@ test("invalid tiers.json is rejected with an actionable error", () => {
     [
       "unknown tier value",
       (data) => {
-        data.agents.build = "huge";
+        data.agents.orchestrator = "huge";
         return data;
       },
-      /agents\.build must be one of big\|medium\|small\|vision/,
+      /agents\.orchestrator must be one of big\|medium\|small\|vision/,
     ],
   ];
   for (const [label, mutate, pattern] of cases) {

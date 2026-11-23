@@ -3,7 +3,7 @@
 // Three modules share this entrypoint:
 //
 // advisor (Phase 1): a peer-reviewer that watches scoped primary agent
-// sessions (currently build/plan), renders redacted deltas of their
+// sessions (currently orchestrator), renders redacted deltas of their
 // transcript, runs them through a second "advisor" agent on its own session,
 // and routes the advisor's `advise` tool calls back into the primary as
 // advisory notes with severity-based delivery.
@@ -131,7 +131,7 @@ export default Plugin.define({
       scope:
         Array.isArray(raw.scope) && raw.scope.length > 0
           ? raw.scope.filter((s) => typeof s === "string")
-          : ["build", "plan"],
+          : ["orchestrator"],
       maxNotesPerUpdate: num(raw.maxNotesPerUpdate, 4),
       reviewTimeoutMs: num(raw.reviewTimeoutMs, 120000),
       maxDeltaChars: num(raw.maxDeltaChars, 30000),
@@ -819,7 +819,7 @@ export default Plugin.define({
     // ---------------- context hook (A1) ----------------
     // Registered when the advisor is enabled OR fanout is enabled (the hook
     // also shapes fusion-agent session tools for the fanout module and
-    // enforces the build/plan-only fanout restriction).
+    // enforces the orchestrator-only fanout restriction).
     const contextHook = (input) => {
       try {
         const agent = input && input.agent;
@@ -841,14 +841,13 @@ export default Plugin.define({
           return;
         }
         // Orchestrator-only fanout (user decision: delegation runs only
-        // through the orchestrator primaries): the fanout tool is deleted
-        // for every agent that is NOT build or plan (in addition to the
+        // through the orchestrator): the fanout tool is deleted
+        // for every agent that is NOT orchestrator (in addition to the
         // fusion-tools-agent and plugin-created-sessionID conditions
         // above). Only fanout is stripped here - submit_result injection
         // stays exclusive to the fusion-agent path above.
         if (
-          agent !== "build" &&
-          agent !== "plan" &&
+          agent !== "orchestrator" &&
           input &&
           input.tools &&
           input.tools.fanout

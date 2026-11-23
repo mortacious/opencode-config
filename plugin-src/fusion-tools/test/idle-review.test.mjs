@@ -77,7 +77,7 @@ function makeCtx() {
       advisor: {
         enabled: true,
         model: "opencode-go/deepseek-v4.1-flash",
-        scope: ["build", "plan"],
+        scope: ["orchestrator"],
         reviewTimeoutMs: 50, // keep the timeout race short in tests
         // These tests exercise the legacy mid-turn + every-idle behavior;
         // the idle-complex gating has its own suite (activation.test.mjs).
@@ -166,7 +166,7 @@ test("idle-triggered review flushes deferred notes (no advisor prompt needed)", 
   const h = makeCtx();
   h.setContextMessages([
     { id: "m1", type: "user", text: "step one content" },
-    { id: "m2", type: "assistant", agent: "build", content: [{ type: "text", text: "step one reply" }] },
+    { id: "m2", type: "assistant", agent: "orchestrator", content: [{ type: "text", text: "step one reply" }] },
   ]);
   const cleanup = await plugin.setup(h.ctx);
   try {
@@ -175,7 +175,7 @@ test("idle-triggered review flushes deferred notes (no advisor prompt needed)", 
     assert.ok(advise, "advise tool registered");
 
     // Mid-turn: context hook fires for the watched primary.
-    h.hooks.context({ sessionID: "P-main", agent: "build" });
+    h.hooks.context({ sessionID: "P-main", agent: "orchestrator" });
     await waitUntil(() => advisorPrompts(h.calls).length === 1);
     assert.equal(h.calls.advisorCreate.length, 1, "one advisor session");
     const advisorSessionID = "advisor-ses-1";
@@ -215,7 +215,7 @@ test("idle-triggered review with empty delta and no deferred notes is skipped wi
   const cleanup = await plugin.setup(h.ctx);
   try {
     // First review (context hook) actually prompts the advisor.
-    h.hooks.context({ sessionID: "P-skip", agent: "build" });
+    h.hooks.context({ sessionID: "P-skip", agent: "orchestrator" });
     await waitUntil(() => advisorPrompts(h.calls).length === 1);
     assert.equal(h.calls.advisorCreate.length, 1);
     assert.equal(h.calls.synthetics.length, 0);
@@ -276,7 +276,7 @@ test("idle-triggered review coalesces into the in-flight review via the per-prim
     // Park a deferred note BEFORE any review runs, by pre-filling the queue
     // through a busy-context hook + advise... simpler: rely on the mutex:
     // hook fires -> review 1 in flight (prompt admitted, wait pending).
-    h.hooks.context({ sessionID: "P-mutex", agent: "build" });
+    h.hooks.context({ sessionID: "P-mutex", agent: "orchestrator" });
     await waitUntil(() => advisorPrompts(h.calls).length === 1);
 
     // Idle arrives while review 1 still holds the mutex.
@@ -306,7 +306,7 @@ test("idle-triggered review delivers a deferred blocker as a steer prompt", asyn
   h.setContextMessages([{ id: "m1", type: "user", text: "turn content" }]);
   const cleanup = await plugin.setup(h.ctx);
   try {
-    h.hooks.context({ sessionID: "P-blocker", agent: "plan" });
+    h.hooks.context({ sessionID: "P-blocker", agent: "orchestrator" });
     await waitUntil(() => advisorPrompts(h.calls).length === 1);
     const ack = await h.tools.find((t) => t.name === "advise").execute(
       { note: "the migration step runs before the backup completes", severity: "blocker" },

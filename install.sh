@@ -266,6 +266,18 @@ else
   echo "OK: subagent-cap plugin deps installed."
 fi
 
+# --- kernel plugin package (plugin-src/kernel) ---
+# The kernel tool host/plugin lives in plugin-src/kernel. Its package.json
+# declares no runtime dependencies (the Python side talks to jupyter_client
+# through the host interpreter), but the package is installed here like the
+# other local plugins so its node_modules and test deps are in place.
+echo "Installing kernel plugin deps (plugin-src/kernel)..."
+if ! ( cd "$CONFIG_DIR/plugin-src/kernel" && npm install --no-audit --no-fund ); then
+  echo "WARNING: failed to install kernel plugin deps; the plugin will not load." >&2
+else
+  echo "OK: kernel plugin deps installed."
+fi
+
 # --- opencode plugins ---
 # Note: the npm-listed plugin in opencode.jsonc "plugins" array
 # (opencode-dcp@2.0.5) is resolved by opencode itself on first run - it does
@@ -335,6 +347,19 @@ if [ ! -f "$CONFIG_DIR/profiles/default/opencode.jsonc" ]; then
 }
 PROFILE_EOF
   echo "OK: created default profile overlay."
+fi
+
+# --- kernel/debugger runtime prerequisites ---
+# The kernel plugin needs a host Python with jupyter_client, a kernel
+# interpreter with ipykernel, Node >= 22, and npx. The check installs nothing;
+# it reports what is missing and how to fix it. Warnings (debugpy, ptrace,
+# mcp-debugger adapters) do not fail the bootstrap; hard failures do.
+echo "Checking kernel/debugger runtime prerequisites ..."
+if ! "$CONFIG_DIR/scripts/check-runtime.sh"; then
+  echo "ERROR: kernel/debugger prerequisites are missing (see above)." >&2
+  echo "  Install ipykernel/jupyter_client in the target env, or run the check" >&2
+  echo "  against a specific env: scripts/check-runtime.sh --python <env>/bin/python" >&2
+  exit 1
 fi
 
 echo "=== bootstrap complete ==="

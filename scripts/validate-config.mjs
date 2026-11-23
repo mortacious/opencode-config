@@ -39,7 +39,9 @@ const BUILTIN_AGENTS = new Set(['title', 'general', 'compaction', 'summary']);
 
 // Canonical coarse-grained permission actions (opencode v2), plus tool-id
 // actions: MCP tool ids such as ddgs_search_text and built-in/plugin tool ids
-// that are bare lowercase words (grep, glob, prune from opencode-dcp).
+// that are bare lowercase words (grep, glob, prune from opencode-dcp). The
+// kernel plugin's tool ids are listed explicitly: kernel is a bare word and
+// kernel_export would otherwise look for an mcp server named "kernel".
 // "*" is the blanket wildcard.
 const CANONICAL_ACTIONS = new Set([
   'read',
@@ -54,6 +56,8 @@ const CANONICAL_ACTIONS = new Set([
   'grep',
   'glob',
   'prune',
+  'kernel',
+  'kernel_export',
   'steer',
   'report',
   '*',
@@ -710,17 +714,24 @@ check('every skills/<dir>/SKILL.md exists with matching name and short descripti
   return summarize(bad, `${skillDirs.length} skills valid`);
 });
 
-check('ASCII-only across agents/, skills/, AGENTS.md, opencode.jsonc, scripts/*.mjs, plugin-src/**/*.js', () => {
+check('ASCII-only across agents/, skills/, AGENTS.md, opencode.jsonc, scripts/*.mjs, scripts/*.sh, plugin-src/**/*.{js,mjs,py}', () => {
   const targets = [];
   targets.push(...listFiles(path.join(ROOT, 'agents'), true));
   targets.push(...listFiles(path.join(ROOT, 'skills'), true));
-  targets.push(...listFiles(path.join(ROOT, 'plugin-src'), true).filter((f) => f.endsWith('.js')));
+  targets.push(
+    ...listFiles(path.join(ROOT, 'plugin-src'), true).filter(
+      (f) => f.endsWith('.js') || f.endsWith('.mjs') || f.endsWith('.py'),
+    ),
+  );
   const scriptsDir = path.join(ROOT, 'scripts');
   if (isDir(scriptsDir)) {
     targets.push(
       ...fs
         .readdirSync(scriptsDir, { withFileTypes: true })
-        .filter((entry) => entry.isFile() && entry.name.endsWith('.mjs'))
+        .filter(
+          (entry) =>
+            entry.isFile() && (entry.name.endsWith('.mjs') || entry.name.endsWith('.sh')),
+        )
         .map((entry) => path.join(scriptsDir, entry.name)),
     );
   }

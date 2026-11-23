@@ -45,7 +45,7 @@ A home-grown profile system lets you launch opencode under different model/confi
 Launch opencode with a specific profile:
 ```
 oc cheap-local           # cheap-local tier models: every agent on the Thor flash id
-oc default               # deepseek-v4.1-flash tiers, vision on gpt-5.6-luna
+oc default               # deepseek-v4.1-flash tiers, vision on glm-5.3-flash
 oc                       # uses .active-profile or 'default'
 ```
 

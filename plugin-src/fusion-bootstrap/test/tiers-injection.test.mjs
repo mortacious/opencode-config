@@ -333,7 +333,7 @@ test("plugin setup registers a hook that injects the real default-profile tiers"
     await handler(primary);
     const text = systemText(primary);
     assert.ok(text.includes('Model tiers (profile "default"'));
-    assert.ok(text.includes("opencode-go/gpt-5.6-luna"));
+    assert.ok(text.includes("opencode-go/glm-5.3-flash"));
 
     const child = { agent: "sidekick", sessionID: "ses_child", system: [] };
     await handler(child);

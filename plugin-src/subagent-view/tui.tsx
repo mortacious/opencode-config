@@ -33,9 +33,12 @@
 // default session overview: line 1 is the running marker, agent name, and task
 // label (the child session's title with a leading "@<agent> subagent" prefix
 // stripped, "Child session" when the title is absent or prefix-only); line 2 is
-// the model label, token/percent usage, and cost. Each line truncates to 72
-// chars and never wraps. Titles come from SessionInfo.title only - no
-// transcript fetch.
+// the model label, token/percent usage, and cost. Both lines truncate to the
+// measured sidebar width and never wrap: the sidebar.content slot is 37
+// columns in v2.3.2 (42 minus the 2+2 padding, plus the inner paddingRight 1)
+// and carries no width prop, so the root box's ref reads its layout-resolved
+// width and onSizeChange keeps that measurement current. Titles come from
+// SessionInfo.title only - no transcript fetch.
 //
 // The store does not update child tokens mid-run, so while at least one child
 // is running a 2s poll calls context.client.session.get({ sessionID }) plus a
@@ -77,6 +80,7 @@ import {
 } from "solid-js";
 
 import { Plugin } from "@opencode/plugin/tui";
+import type { BoxRenderable } from "@opentui/core";
 import type {
   ModelInfo,
   ModelRef,
@@ -106,6 +110,17 @@ function truncate(value: string, max: number): string {
   if (value.length <= max) return value;
   if (max <= 3) return value.slice(0, max);
   return value.slice(0, max - 3) + "...";
+}
+
+// The sidebar.content slot is 37 columns wide in opencode v2.3.2. Its render
+// input carries no width, so this is the value used until the root box's
+// layout measurement lands.
+const SIDEBAR_WIDTH_FALLBACK = 37;
+
+// Usable text width for a measured slot width: leave one column for the
+// scrollbar, and never go below 8 columns.
+function usableWidth(width: number): number {
+  return Math.max(8, width - 1);
 }
 
 // Resolve a child's model label and context limit. Matched on
@@ -214,6 +229,11 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
   >(new Map());
   const finishedRequested = new Set<string>();
   let refreshing = false;
+  // Measured width of this section inside the sidebar.content slot, updated by
+  // the root box's onSizeChange and seeded once from the ref on mount. 37 (the
+  // v2.3.2 slot width) until the first real measurement.
+  const [width, setWidth] = createSignal(SIDEBAR_WIDTH_FALLBACK);
+  let rootBox: BoxRenderable | undefined;
 
   // One-shot fetch of the newest assistant message tokens for a child session,
   // using the lightweight message.list endpoint (limit 1, newest first, only
@@ -373,6 +393,10 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
   }
 
   onMount(() => {
+    // The layout is resolved by mount time; onSizeChange covers later resizes.
+    // A zero width keeps the 37-column fallback.
+    const measured = rootBox?.width;
+    if (typeof measured === "number" && measured > 0) setWidth(measured);
     void loadFallback();
     const timer = setInterval(() => {
       if (refreshing) return;
@@ -460,7 +484,10 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
   // Two single-line rows per child (parity with the default session overview):
   //   line 1: status marker + agent + task label
   //   line 2: model + usage (tokens and percent-of-context) + cost
-  // Each line is truncated independently to 72 chars and never wraps.
+  // Both lines are cut to the measured sidebar width and never wrap. Line 1 is
+  // truncated as a whole, so the task label carries the ellipsis when space
+  // runs out. Line 2 caps the model label first, so the usage and cost columns
+  // stay visible on a narrow sidebar.
   function linesFor(info: SessionInfo): {
     line1: string;
     line2: string;
@@ -480,23 +507,38 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
     const tokens = running
       ? (liveEntry?.tokens ?? ensureFinishedTokens(info.id) ?? info.tokens)
       : (ensureFinishedTokens(info.id) ?? info.tokens);
+    const max = usableWidth(width());
+    // Stage 1 of line 2: the model label may take at most ~45% of the width,
+    // so the usage and cost columns survive.
+    const modelMax = Math.max(10, Math.floor(width() * 0.45));
     const line1 = (running ? "* " : "  ") + agent + "  " + taskLabel(info);
     const line2 =
-      model.label +
+      truncate(model.label, modelMax) +
       "  " +
       usageText(tokens, model.contextLimit) +
       "  " +
       costText(liveEntry?.cost ?? info.cost);
     return {
-      line1: truncate(line1, 72),
-      line2: truncate(line2, 72),
+      line1: truncate(line1, max),
+      line2: truncate(line2, max),
       running,
     };
   }
 
   return (
     <Show when={children().length > 0}>
-      <box>
+      <box
+        ref={(el) => {
+          rootBox = el;
+        }}
+        onSizeChange={function () {
+          // The handler runs with `this` bound to the renderable, so the
+          // freshly laid-out width is read here (a stale width would let a row
+          // wrap and push the next row down).
+          const measured = this.width;
+          if (typeof measured === "number" && measured > 0) setWidth(measured);
+        }}
+      >
         <box
           flexDirection="row"
           gap={1}
@@ -508,11 +550,11 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
           }}
         >
           <Show when={children().length > 2}>
-            <text fg={context.theme.text.base}>
+            <text fg={context.theme.text.base} wrapMode="none" truncate>
               {view.open ? "\u25bc" : "\u25b6"}
             </text>
           </Show>
-          <text fg={context.theme.text.base}>
+          <text fg={context.theme.text.base} wrapMode="none" truncate>
             <b>{"Subagents (" + children().length + ")"}</b>
           </text>
         </box>
@@ -543,6 +585,8 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
                         ? context.theme.text.base
                         : context.theme.text.muted
                     }
+                    wrapMode="none"
+                    truncate
                   >
                     {row().line1}
                   </text>
@@ -552,6 +596,8 @@ function Subagents(props: { context: Plugin.Context; sessionID: string }) {
                         ? context.theme.text.base
                         : context.theme.text.muted
                     }
+                    wrapMode="none"
+                    truncate
                   >
                     {row().line2}
                   </text>

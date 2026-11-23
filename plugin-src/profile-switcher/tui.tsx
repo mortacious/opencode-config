@@ -38,6 +38,7 @@
 import { createEffect, createSignal, For, onMount, Show } from "solid-js";
 
 import { Plugin } from "@opencode/plugin/tui";
+import type { BoxRenderable } from "@opentui/core";
 
 import {
   Profile,
@@ -67,6 +68,17 @@ function truncate(value: string, max: number): string {
   if (value.length <= max) return value;
   if (max <= 3) return value.slice(0, max);
   return value.slice(0, max - 3) + "...";
+}
+
+// The sidebar.content slot is 37 columns wide in opencode v2.3.2. Its render
+// input carries no width, so this is the value used until the root box's
+// layout measurement lands.
+const SIDEBAR_WIDTH_FALLBACK = 37;
+
+// Usable text width for a measured slot width: leave one column for the
+// scrollbar, and never go below 8 columns.
+function usableWidth(width: number): number {
+  return Math.max(8, width - 1);
 }
 
 // Debounce for the reactive open-tab reclaim (see registerTabsReclaim).
@@ -564,14 +576,51 @@ export default Plugin.define({
       const [view, updateView] = context.storage.store("sidebar", {
         initial: { open: false },
       });
+      // Measured width of this section inside the sidebar.content slot,
+      // updated by the root box's onSizeChange and seeded once from the ref on
+      // mount. 37 (the v2.3.2 slot width) until the first real measurement.
+      const [width, setWidth] = createSignal(SIDEBAR_WIDTH_FALLBACK);
+      let rootBox: BoxRenderable | undefined;
+      onMount(() => {
+        // The layout is resolved by mount time; onSizeChange covers later
+        // resizes. A zero width keeps the 37-column fallback.
+        const measured = rootBox?.width;
+        if (typeof measured === "number" && measured > 0) setWidth(measured);
+      });
+      // Two-stage row truncation: the model part is capped first so the
+      // tier/agent label always stays visible, then the whole row is cut to the
+      // measured width (one stage alone could hide either end).
+      function row(label: string, model: string): string {
+        const max = usableWidth(width());
+        const modelMax = Math.max(10, max - label.length - 4);
+        return truncate(
+          "  " + label + "  " + truncate(model, modelMax),
+          max
+        );
+      }
       return (
         <Show
           when={agents().length > 0}
           fallback={
-            <text fg={context.theme.text.base}>Profile: {active()}</text>
+            <text fg={context.theme.text.base} wrapMode="none" truncate>
+              Profile: {active()}
+            </text>
           }
         >
-          <box>
+          <box
+            ref={(el) => {
+              rootBox = el;
+            }}
+            onSizeChange={function () {
+              // The handler runs with `this` bound to the renderable, so the
+              // freshly laid-out width is read here (a stale width would let a
+              // row wrap and push the next row down).
+              const measured = this.width;
+              if (typeof measured === "number" && measured > 0) {
+                setWidth(measured);
+              }
+            }}
+          >
             <box
               flexDirection="row"
               gap={1}
@@ -585,10 +634,10 @@ export default Plugin.define({
                 }
               }}
             >
-              <text fg={context.theme.text.base}>
+              <text fg={context.theme.text.base} wrapMode="none" truncate>
                 {view.open ? "\u25bc" : "\u25b6"}
               </text>
-              <text fg={context.theme.text.base}>
+              <text fg={context.theme.text.base} wrapMode="none" truncate>
                 <b>
                   {"Profile: " +
                     active() +
@@ -604,8 +653,8 @@ export default Plugin.define({
                 fallback={
                   <For each={agents()}>
                     {(entry) => (
-                      <text fg={context.theme.text.muted}>
-                        {truncate("  " + entry.agent + "  " + entry.model, 72)}
+                      <text fg={context.theme.text.muted} wrapMode="none" truncate>
+                        {row(entry.agent, entry.model)}
                       </text>
                     )}
                   </For>
@@ -613,8 +662,8 @@ export default Plugin.define({
               >
                 <For each={tiers()}>
                   {(entry) => (
-                    <text fg={context.theme.text.muted}>
-                      {truncate("  " + entry.tier + "  " + entry.model, 72)}
+                    <text fg={context.theme.text.muted} wrapMode="none" truncate>
+                      {row(entry.tier, entry.model)}
                     </text>
                   )}
                 </For>

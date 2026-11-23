@@ -65,5 +65,6 @@ stays with the orchestrator.
   pruned block forward with a `(bN)` placeholder; the `mNNNN`/`bN` boundary ids are renumbered
   every dispatch, so ids copied from an earlier call throw - use the currently visible tags.
 - Output is ASCII only across all agents: ` - ` not em-dashes, straight quotes, `...`.
-- The `Amenable Thor 1` provider block in `opencode.jsonc` contains a hardcoded API key and an
-  internal-IP base URL. Treat it as a secret; never echo it into commits, diffs, or summaries.
+- Provider credentials and internal endpoints live in gitignored `secrets/` files referenced via
+  `{file:...}` (or the opencode auth store); never commit secret values. The same advisory applies
+  to history.

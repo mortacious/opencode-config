@@ -1,6 +1,6 @@
 # opencode config
 
-Personal opencode configuration. Managed as a private git repo for deployment across machines.
+Personal opencode configuration. Managed as a public git repo for deployment across machines.
 
 ## Deploy to a new machine
 
@@ -86,7 +86,7 @@ oc cheap-qwen
 
 ## Secret handling
 
-This repo is private. The `Amenable Thor 1` provider block in `opencode.jsonc` reaches a LAN-only server and contains an inline API key; that block is safe to keep in the private repo as long as the LAN/VPN boundary holds. The `neuralwatt` provider key is NOT in the repo - it is read from the environment (`NEURALWATT_API_KEY`) and must be set per machine.
+This repo is public. The `Amenable Thor 1` provider block in `opencode.jsonc` reaches a LAN-only server; its API key and base URL are not in the tree - they live in the gitignored `secrets/lan_api_key` and `secrets/lan_base_url` files and are pulled in via `{file:...}` references. The `neuralwatt` provider key is NOT in the repo - it is read from the environment (`NEURALWATT_API_KEY`) and must be set per machine.
 
 The research-API keys (Semantic Scholar, GitHub PAT) live in the gitignored `secrets/` directory as one file per key, referenced from `opencode.jsonc` via `{file:secrets/<name>}` interpolation - opencode reads them directly at startup, so no shell sourcing is needed. `install.sh` creates empty placeholders. Sourcegraph keys (if enabled later) use `{env:SRC_ENDPOINT}`/`{env:SRC_ACCESS_TOKEN}` environment variables instead.
 

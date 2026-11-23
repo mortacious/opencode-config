@@ -200,8 +200,8 @@
       "package": "aisdk:@ai-sdk/openai-compatible",
       "name": "Amenable Thor 1",
       "settings": {
-        "baseURL": "http://10.249.3.0:3000/api/v1",
-        "apiKey": "sk-1160d220edc64d189934232ad4ff77b7"
+        "baseURL": "{file:secrets/lan_base_url}",
+        "apiKey": "{file:secrets/lan_api_key}"
       },
       "models": {
         "unsloth/Qwen3.8-27B-NVFP4": {

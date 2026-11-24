@@ -14,9 +14,11 @@ red-team), and `reviewer` (audit gate). Method knowledge lives in `skills/`; age
 capability shells that point at it. Subagents cannot ask the user, so the interactive settle loop
 stays with the orchestrator.
 
+This pattern describes this configuration repository and the coding sessions it starts; a project that ships its own agents and project config defines its own default primary and delegation rules.
+
 ## Invariants
 
-- Primaries never edit. `orchestrator` decides when and what to commit, push, or merge, then
+- In this repository, primaries never edit. `orchestrator` decides when and what to commit, push, or merge, then
   delegates execution to `sidekick` through the `fusion-commit` skill and
   `skills/fusion-delegation-spec/templates/commit-task.md`. No other agent runs `git add`,
   `git commit`, or `git push`, and `sidekick` never amends or forces.
@@ -24,9 +26,9 @@ stays with the orchestrator.
   (`agents.build.disabled`, `agents.plan.disabled`); `default_agent` is `orchestrator`, so a bare
   session starts in the single visible primary. `analyst` is not a picker entry: the orchestrator
   dispatches it as a read-only subagent.
-- Primary `subagent` allowlist: `sidekick`, `analyst`, `reviewer`. The built-in `general`
+- In this repository, the primary's `subagent` allowlist: `sidekick`, `analyst`, `reviewer`. The built-in `general`
   subagent is excluded - do not route to it.
-- Only the orchestrator creates or removes git worktrees; execution agents never do.
+- In this repository, only the orchestrator creates or removes git worktrees; execution agents never do.
 - Code never hardcodes the composition: plugins, scripts, and commands discover agents from
   `agents/*.md` (mode and permission arrays), tiers from `profiles/*/tiers.json`, and skills from
   `skills/`. New agent files, tier entries, and skill directories are picked up automatically, and a

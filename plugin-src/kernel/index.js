@@ -9,6 +9,10 @@
 // The host protocol lives in host.py / lib/host-client.js, per-session LRU
 // bookkeeping in lib/registry.js, interpreter selection in lib/discovery.js,
 // output formatting in lib/format.js, and export in lib/export.js.
+//
+// The `kernel` RPC (rpc.js) feeds the /kernel TUI panel: `cells` reads the
+// journal, and the `cell` / `reset` events stream live updates after each
+// successful tool call. Journal reading lives in lib/journal.js.
 
 import crypto from "node:crypto";
 import { mkdir } from "node:fs/promises";
@@ -19,10 +23,12 @@ import { Plugin } from "@opencode/plugin";
 
 import { resolveKernel } from "./lib/discovery.js";
 import { defaultExportPython, exportNotebook } from "./lib/export.js";
-import { formatResult } from "./lib/format.js";
+import { buildContent, formatResult } from "./lib/format.js";
 import { createHostClient } from "./lib/host-client.js";
+import { readJournal } from "./lib/journal.js";
 import { sessionPaths } from "./lib/paths.js";
 import { createRegistry } from "./lib/registry.js";
+import { Kernel } from "./rpc.js";
 
 const DEFAULT_HOST_SCRIPT = fileURLToPath(new URL("./host.py", import.meta.url));
 const DEFAULT_TIMEOUT_SEC = 30;
@@ -89,6 +95,80 @@ export async function resolveProjectDirectory(ctx, sessionID) {
   }
 
   return process.cwd();
+}
+
+const DEFAULT_CELL_LIMIT = 100;
+const MAX_CELL_LIMIT = 500;
+
+/** Clamp the panel's requested window: default 100, 1..500. */
+export function normalizeCellLimit(limit) {
+  if (typeof limit !== "number" || !Number.isFinite(limit)) return DEFAULT_CELL_LIMIT;
+  const value = Math.floor(limit);
+  if (value < 1) return 1;
+  return Math.min(value, MAX_CELL_LIMIT);
+}
+
+/**
+ * Build the `cells` RPC handler. Missing journal -> { meta: null, cells: [] };
+ * an invalid session id throws through sessionPaths.
+ */
+export function createCellsHandler({
+  pathsForSession = (sessionID) => sessionPaths(sessionID),
+  read = readJournal,
+} = {}) {
+  return async (input) => {
+    const value = input && typeof input === "object" ? input : {};
+    const sessionID = typeof value.sessionID === "string" ? value.sessionID : "";
+    const paths = pathsForSession(sessionID);
+    const journal = await read(paths);
+    const cells = Array.isArray(journal.cells) ? journal.cells : [];
+    return {
+      meta: journal.meta ?? null,
+      cells: cells.slice(-normalizeCellLimit(value.limit)),
+    };
+  };
+}
+
+/**
+ * Build the post-call notifier for the `cell` / `reset` events. With no RPC
+ * registration it is a no-op, so tool calls work when the RPC is unavailable.
+ *
+ * A reset-only call writes no journal cell, so the panel's refetch triggered by
+ * its `reset` event cannot see the boundary record yet. The notifier therefore
+ * remembers such a call per session and re-emits `reset` before the next
+ * `cell` event, once the boundary is readable in the journal.
+ */
+export function createKernelNotifier({
+  registration,
+  pathsForSession = (sessionID) => sessionPaths(sessionID),
+  read = readJournal,
+} = {}) {
+  const events = registration && registration.events;
+  const emit =
+    events && typeof events.emit === "function" ? events.emit.bind(events) : null;
+  const pendingReset = new Set();
+
+  return async function notify({ sessionID, reset, selection, wroteCell }) {
+    if (!emit) return;
+    const key = String(sessionID ?? "");
+    try {
+      if (pendingReset.has(key) || reset) {
+        await emit("reset", { selection: String(selection ?? "") });
+        pendingReset.delete(key);
+      }
+      if (wroteCell) {
+        const journal = await read(pathsForSession(sessionID));
+        const cells = Array.isArray(journal.cells) ? journal.cells : [];
+        const last = cells.length > 0 ? cells[cells.length - 1] : null;
+        if (last) await emit("cell", last);
+      } else if (reset) {
+        // Reset-only: the journal has no boundary for the panel to read yet.
+        pendingReset.add(key);
+      }
+    } catch {
+      // live panel updates are best-effort; never break the tool call
+    }
+  };
 }
 
 function createSessionHost({
@@ -210,6 +290,7 @@ export function createKernelTools({
   maxHosts = 4,
   env = process.env,
   now = Date.now,
+  onExecuted = async () => {},
   log = (message) => {
     try {
       console.error(message);
@@ -234,6 +315,14 @@ export function createKernelTools({
 
   const hostRegistry =
     registry ?? createRegistry({ max: maxHosts, spawnHost, now, log });
+
+  const notifyExecuted = async (payload) => {
+    try {
+      await onExecuted(payload);
+    } catch {
+      // panel events are best-effort
+    }
+  };
 
   const kernel = {
     name: "kernel",
@@ -335,6 +424,12 @@ export function createKernelTools({
               reset: true,
             });
           }
+          await notifyExecuted({
+            sessionID,
+            reset: true,
+            selection: entry.host.selection,
+            wroteCell: false,
+          });
           return {
             content: `Kernel reset: ${entry.host.selection}`,
             metadata: {
@@ -383,8 +478,15 @@ export function createKernelTools({
             ? outcome.executionCount
             : formatted.executionCount;
 
+        await notifyExecuted({
+          sessionID,
+          reset: opts.reset === true,
+          selection: entry.host.selection,
+          wroteCell: true,
+        });
+
         return {
-          content: formatted.text,
+          content: buildContent(formatted.text, formatted.imageParts),
           metadata: {
             sessionID,
             kernel: entry.host.selection,
@@ -497,8 +599,23 @@ export function addKernelTools(editor, tools) {
 export default Plugin.define({
   id: "kernel",
   async setup(ctx) {
+    // The /kernel panel talks to the server through this RPC. When the
+    // registration surface is unavailable, skip silently: the tools keep
+    // working and the notifier becomes a no-op.
+    let rpcRegistration = null;
+    if (ctx.rpc && typeof ctx.rpc.register === "function") {
+      try {
+        rpcRegistration = await ctx.rpc.register(Kernel, {
+          cells: createCellsHandler(),
+        });
+      } catch {
+        rpcRegistration = null;
+      }
+    }
+
     const surface = createKernelTools({
       resolveProjectDir: (sessionID) => resolveProjectDirectory(ctx, sessionID),
+      onExecuted: createKernelNotifier({ registration: rpcRegistration }),
     });
 
     const registration = await ctx.tool.transform((editor) =>
@@ -548,6 +665,12 @@ export default Plugin.define({
       process.off("SIGINT", onSignal);
       try {
         await registration?.dispose();
+      } catch {
+        // ignore
+      }
+      try {
+        await rpcRegistration?.dispose();
+        rpcRegistration = null;
       } catch {
         // ignore
       }

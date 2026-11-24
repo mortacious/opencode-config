@@ -4,7 +4,7 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { formatResult, plainText, stripAnsi, stripHtml } from "../lib/format.js";
+import { buildContent, formatResult, plainText, stripAnsi, stripHtml } from "../lib/format.js";
 
 async function workdir() {
   const base = await mkdtemp(path.join(os.tmpdir(), "kernel-format-"));
@@ -196,6 +196,11 @@ test("update_display by display_id replaces the earlier data and image", async (
   assert.equal(out.images.length, 1);
   assert.equal(out.images[0], path.join(imagesDir, "5-2.png"));
   assert.equal(out.text, `v2\nimage: ${out.images[0]}\n`);
+  assert.equal(out.imageParts.length, 1);
+  assert.equal(out.imageParts[0].base64, secondImage.toString("base64"));
+  const content = buildContent(out.text, out.imageParts);
+  assert.equal(content.length, 2);
+  assert.equal(content[1].uri, `data:image/png;base64,${secondImage.toString("base64")}`);
   assert.deepEqual(await readFile(out.images[0]), secondImage);
 });
 
@@ -264,4 +269,130 @@ test("stripAnsi, stripHtml, and plainText helpers decode output data", () => {
   assert.equal(stripHtml("<b>a</b>&amp;b"), "a&b");
   assert.equal(plainText({ "text/html": "<i>x</i>" }), "x");
   assert.equal(plainText({ "text/plain": "" }), "");
+});
+
+test("a small png becomes a text part plus one file part", async () => {
+  const { imagesDir, logsDir } = await workdir();
+  const payload = Buffer.from("png-bytes");
+  const out = await formatResult(
+    [
+      {
+        op: "display",
+        id: "a",
+        data: { "text/plain": "<Figure>", "image/png": payload.toString("base64") },
+      },
+      { op: "done", id: "a", status: "ok", executionCount: 5 },
+    ],
+    { imagesDir, logsDir },
+  );
+
+  assert.equal(out.text, `<Figure>\nimage: ${out.images[0]}\n`);
+  const content = buildContent(out.text, out.imageParts);
+  assert.deepEqual(content, [
+    { type: "text", text: out.text },
+    {
+      type: "file",
+      uri: `data:image/png;base64,${payload.toString("base64")}`,
+      mime: "image/png",
+      name: "5-1.png",
+    },
+  ]);
+});
+
+test("a jpeg is inlined with its own mime and jpg name", async () => {
+  const { imagesDir, logsDir } = await workdir();
+  const payload = Buffer.from("jpeg-bytes");
+  const out = await formatResult(
+    [
+      { op: "display", id: "a", data: { "image/jpeg": payload.toString("base64") } },
+      { op: "done", id: "a", status: "ok", executionCount: 2 },
+    ],
+    { imagesDir, logsDir },
+  );
+
+  const content = buildContent(out.text, out.imageParts);
+  assert.equal(content.length, 2);
+  assert.deepEqual(content[1], {
+    type: "file",
+    uri: `data:image/jpeg;base64,${payload.toString("base64")}`,
+    mime: "image/jpeg",
+    name: "2-1.jpg",
+  });
+});
+
+test("four images inline three parts and keep all four path lines", async () => {
+  const { imagesDir, logsDir } = await workdir();
+  const payloads = [Buffer.from("one"), Buffer.from("two"), Buffer.from("three"), Buffer.from("four")];
+  const events = payloads.map((payload, index) => ({
+    op: "display",
+    id: "a",
+    data: {
+      "text/plain": `fig${index + 1}`,
+      "image/png": payload.toString("base64"),
+    },
+  }));
+  events.push({ op: "done", id: "a", status: "ok", executionCount: 1 });
+
+  const out = await formatResult(events, { imagesDir, logsDir });
+
+  assert.equal(out.images.length, 4);
+  for (const file of out.images) {
+    assert.ok(out.text.includes(`image: ${file}`), out.text);
+  }
+  const content = buildContent(out.text, out.imageParts);
+  assert.equal(content.length, 4);
+  assert.deepEqual(
+    content.slice(1).map((part) => part.name),
+    ["1-1.png", "1-2.png", "1-3.png"],
+  );
+  assert.equal(content[0].text, out.text);
+});
+
+test("an image over 2 MiB stays a path line and gets no file part", async () => {
+  const { imagesDir, logsDir } = await workdir();
+  const payload = Buffer.alloc(2 * 1024 * 1024 + 1, 7);
+  const out = await formatResult(
+    [
+      { op: "display", id: "a", data: { "image/png": payload.toString("base64") } },
+      { op: "done", id: "a", status: "ok", executionCount: 3 },
+    ],
+    { imagesDir, logsDir },
+  );
+
+  assert.equal(out.images.length, 1);
+  assert.deepEqual(out.imageParts, []);
+  const content = buildContent(out.text, out.imageParts);
+  assert.equal(content, out.text);
+  assert.ok(out.text.includes(`image: ${out.images[0]}`), out.text);
+});
+
+test("an svg stays a path line and gets no file part", async () => {
+  const { imagesDir, logsDir } = await workdir();
+  const payload = Buffer.from("<svg></svg>");
+  const out = await formatResult(
+    [
+      { op: "display", id: "a", data: { "image/svg+xml": payload.toString("base64") } },
+      { op: "done", id: "a", status: "ok", executionCount: 4 },
+    ],
+    { imagesDir, logsDir },
+  );
+
+  assert.equal(out.images[0], path.join(imagesDir, "4-1.svg"));
+  assert.deepEqual(out.imageParts, []);
+  assert.equal(buildContent(out.text, out.imageParts), out.text);
+});
+
+test("a result without images keeps the plain text content", async () => {
+  const { imagesDir, logsDir } = await workdir();
+  const out = await formatResult(
+    [
+      { op: "stream", id: "a", name: "stdout", text: "hello\n" },
+      { op: "done", id: "a", status: "ok", executionCount: 1 },
+    ],
+    { imagesDir, logsDir },
+  );
+
+  assert.deepEqual(out.imageParts, []);
+  assert.equal(buildContent(out.text, out.imageParts), "hello\n");
+  assert.equal(buildContent("plain", undefined), "plain");
 });

@@ -4,6 +4,7 @@
 // errors). formatResult preserves that order, strips ANSI noise, saves image
 // payloads to the session images directory, and caps the text at capBytes by
 // keeping a head and a tail and writing the complete text to a log file.
+// buildContent then wraps the text with inline image file parts for the TUI.
 
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -17,6 +18,13 @@ const IMAGE_TYPES = new Map([
   ["image/jpeg", "jpg"],
   ["image/svg+xml", "svg"],
 ]);
+
+// Images worth an inline TUI preview. SVG is deliberately excluded: it is not
+// a raster mime and stays a path line only.
+const INLINE_MIMES = new Set(["image/png", "image/jpeg"]);
+const MAX_INLINE_IMAGES = 3;
+const MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024;
+const MAX_INLINE_TOTAL_BYTES = 6 * 1024 * 1024;
 
 export function stripAnsi(value) {
   return String(value).replace(ANSI_OSC, "").replace(ANSI_ESCAPE, "");
@@ -67,7 +75,33 @@ async function saveImage({ data, mime, imagesDir, executionCount, index }) {
     `${safeName(executionCount)}-${safeName(index, "1")}.${IMAGE_TYPES.get(mime)}`,
   );
   await writeFile(file, buffer);
-  return file;
+  return { file, buffer };
+}
+
+/**
+ * Build tool content for one result. Without an eligible image the content is
+ * the plain text; otherwise it is a text part followed by up to three file
+ * parts carrying the images the TUI can preview inline. Ineligible images keep
+ * their `image: <path>` text line only.
+ */
+export function buildContent(text, imageParts = []) {
+  const files = [];
+  let total = 0;
+  for (const image of Array.isArray(imageParts) ? imageParts : []) {
+    if (files.length >= MAX_INLINE_IMAGES) break;
+    if (!INLINE_MIMES.has(image.mime)) continue;
+    if (image.bytes > MAX_INLINE_IMAGE_BYTES) continue;
+    if (total + image.bytes > MAX_INLINE_TOTAL_BYTES) continue;
+    total += image.bytes;
+    files.push({
+      type: "file",
+      uri: `data:${image.mime};base64,${image.base64}`,
+      mime: image.mime,
+      name: path.basename(image.file),
+    });
+  }
+  if (files.length === 0) return text;
+  return [{ type: "text", text }, ...files];
 }
 
 export async function formatResult(events, options = {}) {
@@ -214,10 +248,11 @@ export async function formatResult(events, options = {}) {
   }
 
   const images = [];
+  const imageParts = [];
   for (const item of pendingImages) {
     if (supersededImages.has(item)) continue;
     if (!text.includes(item.placeholder)) continue;
-    const file = await saveImage({
+    const { file, buffer } = await saveImage({
       data: item.data,
       mime: item.mime,
       imagesDir,
@@ -225,6 +260,14 @@ export async function formatResult(events, options = {}) {
       index: item.index,
     });
     images.push(file);
+    if (INLINE_MIMES.has(item.mime) && buffer.length <= MAX_INLINE_IMAGE_BYTES) {
+      imageParts.push({
+        file,
+        mime: item.mime,
+        bytes: buffer.length,
+        base64: buffer.toString("base64"),
+      });
+    }
     text = text.split(item.placeholder).join(`image: ${file}`);
   }
 
@@ -251,5 +294,5 @@ export async function formatResult(events, options = {}) {
     }
   }
 
-  return { text, images, truncated, logPath, status, executionCount };
+  return { text, images, imageParts, truncated, logPath, status, executionCount };
 }

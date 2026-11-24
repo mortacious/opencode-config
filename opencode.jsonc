@@ -5,6 +5,8 @@
   // Single entrypoint: the built-in build/plan primaries are disabled below.
   "default_agent": "orchestrator",
   "websearch": { "provider": "exa" },
+  // Inline image previews in the transcript (kernel image outputs, screenshots).
+  "session": { "image_preview": true },
   "experimental": { "subagent_depth": 2 },
   "plugins": [
     {

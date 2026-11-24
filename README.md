@@ -72,6 +72,15 @@ debugger for Python and C/C++.
   needs ptrace permission. `get_output` reflects DAP output events, not every byte the target
   writes, so read a launched program's own stdout from the terminal.
 
+`/kernel` opens the `Kernel cells` session panel: syntax-highlighted cells, their outputs,
+images, and reset dividers for the current session, updating live through the plugin's `kernel`
+RPC (`cell` and `reset` events). It reads the same `meta.json` / `cells.jsonl` as export, so a
+new session shows an empty panel instead of an error. The panel renders PNG and JPEG outputs
+from the journal in place, up to 3 images per cell. Inline previews of saved image files in the
+transcript (PNG/JPEG, 3 per cell, 2 MiB each, 6 MiB total) separately need
+`"session": { "image_preview": true }` at the top level of `opencode.jsonc`; the saved image
+paths stay in the tool metadata either way.
+
 Prerequisites are per environment, not vendored: `ipykernel` in each kernel env,
 `jupyter_client` in the host interpreter, and `debugpy` (from `ipykernel`) in each debug launch
 env. Run `scripts/check-runtime.sh` to report which are present; pass `--python <path>` to check

@@ -90,6 +90,19 @@ the cap. Images (matplotlib, PIL, anything producing a MIME image bundle) are sa
 returned as file paths. To inspect one, hand the path to the vision tier (the `analyst` agent) -
 the kernel does not describe pixels.
 
+### Panel and image previews
+
+The `/kernel` panel renders the session journal: syntax-highlighted cells, their outputs,
+images, and reset dividers, refreshed live by the plugin's `kernel` RPC (`cell` and `reset`
+events after each call; `cells` reads the same `meta.json` and `cells.jsonl` as export, and an
+empty journal shows an empty panel). Open it with the `/kernel` command or the `Kernel cells`
+entry in the command palette; the panel renders PNG and JPEG outputs up to 3 images per cell,
+with a `+N more` line past that, and a truncated or non-base64 image payload shows a
+`[truncated image data]` placeholder instead of an image. Inline image previews in the transcript
+separately need `"session": { "image_preview": true }` at the top level of `opencode.jsonc`: PNG
+and JPEG outputs render in place up to 3 per cell, 2 MiB each, 6 MiB total, while the saved file
+paths remain in the result metadata.
+
 ### Notebook export
 
 `kernel_export({path, title})` writes the session journal to an nbformat 4.5 `.ipynb`:

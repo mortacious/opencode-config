@@ -272,7 +272,7 @@ test("an aborted call interrupts the host", async () => {
   await pending;
 });
 
-test("image outputs are saved under the session images directory", async () => {
+test("image outputs return a text part plus an inline file part", async () => {
   const payload = Buffer.from("PNGDATA");
   const { tools, base } = await setup({
     script: (call) => [
@@ -291,9 +291,36 @@ test("image outputs are saved under the session images directory", async () => {
   const result = await tools.tools.kernel.execute({ code: "fig()" }, CTX);
   const expected = path.join(base, "ses_test", "images", "3-1.png");
 
+  assert.ok(Array.isArray(result.content), result.content);
+  assert.deepEqual(result.content, [
+    {
+      type: "text",
+      text: `<Figure size 640x480>\nimage: ${expected}\n`,
+    },
+    {
+      type: "file",
+      uri: `data:image/png;base64,${payload.toString("base64")}`,
+      mime: "image/png",
+      name: "3-1.png",
+    },
+  ]);
   assert.deepEqual(result.metadata.images, [expected]);
-  assert.ok(result.content.includes(`image: ${expected}`), result.content);
+  assert.equal(result.metadata.logPath, null);
+  assert.equal(result.metadata.truncated, false);
+  assert.equal(result.metadata.status, "ok");
+  assert.equal(result.metadata.executionCount, 3);
+  assert.equal(result.metadata.kernel, "/usr/bin/python3");
+  assert.equal(result.metadata.sessionID, "ses_test");
   assert.deepEqual(await readFile(expected), payload);
+});
+
+test("a cell without images keeps plain text content", async () => {
+  const { tools } = await setup();
+  const result = await tools.tools.kernel.execute({ code: "1" }, CTX);
+
+  assert.equal(typeof result.content, "string");
+  assert.equal(result.content, "run:1\nOut[1]: 1\n");
+  assert.deepEqual(result.metadata.images, []);
 });
 
 test("output over 50 KiB is truncated to a log file", async () => {

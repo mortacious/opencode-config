@@ -3,8 +3,8 @@
 // Coverage:
 //   1. an active profile with tiers.json -> the PRIMARY part carries the
 //      tier table; a child session gets the SKILLS contract and no table
-//   2. missing tiers.json -> primary reminder only, no table
-//   3. invalid tiers.json -> no throw, no table
+//   2. missing tiers.json -> permission brief only, no reminder, no table
+//   3. invalid tiers.json -> no throw, no reminder, no table
 //   4. profile resolution falls back to the global .active-profile record
 //   5. the plugin setup registers a working context hook (real plugin entry)
 //   6. the permission brief: sidekick (edit allow, shell allow-with-denies),
@@ -13,6 +13,8 @@
 //   7. capability detection: any agent whose info reports mode "primary" gets
 //      the primary nudge (a custom name proves no roster is hardcoded), and
 //      a root session whose agent mode cannot be resolved gets no nudge
+//   8. the reminder is gated on the profile's tiers agents mapping: a primary
+//      it does not list gets the brief (plus table) and no Fusion reminder
 //
 // Run: node --test plugin-src/fusion-bootstrap/test/
 
@@ -138,6 +140,17 @@ const AGENTS = {
       { action: "shell", resource: "*>*", effect: "deny" },
     ],
   },
+  // A primary this profile's tiers.json does not list: its own project's
+  // primary, not a Fusion one.
+  "vault-primary": {
+    name: "vault-primary",
+    mode: "primary",
+    permissions: [
+      { action: "read", resource: "*", effect: "allow" },
+      { action: "edit", resource: "*", effect: "allow" },
+      { action: "subagent", resource: "*", effect: "deny" },
+    ],
+  },
 };
 
 async function getAgent({ agentID }) {
@@ -240,11 +253,12 @@ test("a tier without a description yields no tier table (fail-soft)", async () =
   const primary = { agent: "orchestrator", sessionID: "ses_root", system: [] };
   await handler(primary);
   const text = systemText(primary);
-  assert.ok(text.includes("check the skill catalog"));
+  assert.ok(text.includes('Fusion permissions for agent "orchestrator"'));
+  assert.ok(!text.includes("check the skill catalog"), "no reminder without a tier table");
   assert.ok(!text.includes("Model tiers"));
 });
 
-test("missing tiers.json injects the primary reminder without a tier table", async () => {
+test("missing tiers.json injects the brief only, without a reminder or tier table", async () => {
   const root = makeConfigDir();
   const handler = createContextHandler({
     configDir: root,
@@ -255,11 +269,12 @@ test("missing tiers.json injects the primary reminder without a tier table", asy
   const primary = { agent: "orchestrator", sessionID: "ses_root", system: [] };
   await handler(primary);
   const text = systemText(primary);
-  assert.ok(text.includes("check the skill catalog"));
+  assert.ok(text.includes('Fusion permissions for agent "orchestrator"'));
+  assert.ok(!text.includes("check the skill catalog"), "no reminder without a tier table");
   assert.ok(!text.includes("Model tiers"));
 });
 
-test("invalid tiers.json does not throw and injects no tier table", async () => {
+test("invalid tiers.json does not throw and injects no reminder or tier table", async () => {
   const root = makeConfigDir({ tiers: '{ "tiers": ' });
   const handler = createContextHandler({
     configDir: root,
@@ -270,7 +285,8 @@ test("invalid tiers.json does not throw and injects no tier table", async () => 
   const primary = { agent: "orchestrator", sessionID: "ses_root", system: [] };
   await handler(primary);
   const text = systemText(primary);
-  assert.ok(text.includes("check the skill catalog"));
+  assert.ok(text.includes('Fusion permissions for agent "orchestrator"'));
+  assert.ok(!text.includes("check the skill catalog"), "no reminder without a tier table");
   assert.ok(!text.includes("Model tiers"));
 });
 
@@ -377,6 +393,44 @@ test("a custom primary name gets the primary nudge (no hardcoded roster)", async
   assert.ok(text.includes('Fusion permissions for agent "lead"'));
   assert.ok(text.includes('Model tiers (profile "demo"'));
   assert.ok(text.includes("Agent defaults: helper=quick, lead=deep"));
+});
+
+test("a primary outside the tier mapping gets the brief and tier table but no reminder", async () => {
+  const root = makeConfigDir({ tiers: TIERS });
+  const handler = createContextHandler({
+    configDir: root,
+    env: demoEnv(root),
+    getSession,
+    getAgent,
+  });
+  const primary = { agent: "vault-primary", sessionID: "ses_root", system: [] };
+  await handler(primary);
+  const text = systemText(primary);
+  assert.ok(text.includes('Fusion permissions for agent "vault-primary"'));
+  assert.ok(text.includes('Model tiers (profile "demo"'));
+  assert.ok(!text.includes("load the fusion-workflow skill"), "no Fusion reminder");
+  assert.ok(!text.startsWith("Fusion bootstrap:"), "the reminder stays off a foreign primary");
+});
+
+test("a primary with no resolvable tier table gets the brief only", async () => {
+  // The fixture keeps a tiers.json that maps orchestrator, but no launched or
+  // recorded profile names it, so the resolved profile ("default") has no
+  // tiers file and the table is null. The brief proves the handler ran; the
+  // only reason no reminder appears is the missing table, not the mapping.
+  const root = makeConfigDir({ tiers: TIERS });
+  const handler = createContextHandler({
+    configDir: root,
+    env: {},
+    getSession,
+    getAgent,
+  });
+  const primary = { agent: "orchestrator", sessionID: "ses_root", system: [] };
+  await handler(primary);
+  const text = systemText(primary);
+  assert.ok(text.includes('Fusion permissions for agent "orchestrator"'));
+  assert.ok(!text.includes("Model tiers"));
+  assert.ok(!text.includes("load the fusion-workflow skill"), "no Fusion reminder");
+  assert.ok(!text.includes("Fusion bootstrap:"), "no reminder without a tier table");
 });
 
 test("a root session without a resolved primary mode gets no nudge (fail-soft)", async () => {

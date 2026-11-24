@@ -8,14 +8,17 @@
 // mutable SessionContext, and pushing onto input.system adds an instruction
 // without writing a transcript message, so nothing accumulates):
 //
-// - Primary sessions (any agent whose resolved info reports mode "primary"):
-//   check the skill catalog before acting; delegations load the
-//   fusion-delegation-spec skill and fill a dispatch template from its
-//   templates/ directory instead of a freehand task spec. When the ACTIVE
-//   profile carries profiles/<name>/tiers.json, a compact model-tier table is
-//   appended to the same part so the primary can pick a tier and pass its
-//   literal model id on the subagent call. No roster list lives here: the mode
-//   comes from agent info, so a new agents/<name>.md is picked up as-is.
+// - Primary sessions (any agent whose resolved info reports mode "primary")
+//   that the ACTIVE profile's tiers.json lists in its agents mapping: check the
+//   skill catalog before acting; delegations load the fusion-delegation-spec
+//   skill and fill a dispatch template from its templates/ directory instead of
+//   a freehand task spec. When the profile carries tiers.json, a compact
+//   model-tier table is appended to the same part so the primary can pick a
+//   tier and pass its literal model id on the subagent call. A primary the
+//   mapping does not list (a project that ships its own agents) gets the tier
+//   table and the permission brief only, never the Fusion reminder. No roster
+//   list lives here: the mode comes from agent info and the mapping from the
+//   profile, so a new agents/<name>.md is picked up as-is.
 // - Child sessions (any session with a structural parentID): the task prompt
 //   is the full specification, load the skills it names, and the report MUST
 //   begin with the "SKILLS:" line so a skipped load is visible. Every
@@ -492,17 +495,26 @@ export function createContextHandler(options = {}) {
         return;
       }
       // Capability detection, not a roster: only an agent whose resolved info
-      // reports mode "primary" gets the primary nudge. Unavailable agent info
+      // reports mode "primary" is decorated at all. Unavailable agent info
       // (no getAgent option, failed or incomplete lookup) injects nothing for
       // this request; the next request retries.
       if ((await agentMode(agent)) !== "primary") return;
+      // The Fusion reminder is for this configuration's own primaries: an agent
+      // listed in the active profile's tiers.json agents mapping. Any other
+      // primary (a project shipping its own agents) still gets the permission
+      // brief and the tier table, never the Fusion workflow nudge.
       const brief = await permissionBrief(agent);
       const directory = await sessionDirectory(input.sessionID);
       const profile = resolveActiveProfile(env, configDir, directory);
       const tierTable = loadTierTable(configDir, profile);
-      let text = brief ? PRIMARY_REMINDER + "\n\n" + brief : PRIMARY_REMINDER;
-      if (tierTable) text += "\n\n" + formatTierTable(tierTable);
-      inject(input, text);
+      const wantsReminder =
+        tierTable !== null && Object.hasOwn(tierTable.mapping, agent);
+      const parts = [];
+      if (wantsReminder) parts.push(PRIMARY_REMINDER);
+      if (brief) parts.push(brief);
+      if (tierTable) parts.push(formatTierTable(tierTable));
+      if (parts.length === 0) return;
+      inject(input, parts.join("\n\n"));
     } catch {
       // A reminder must never fail the model request it decorates.
     }

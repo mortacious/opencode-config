@@ -11,5 +11,5 @@
     "jsx": "react-jsx",
     "jsxImportSource": "@opentui/solid"
   },
-  "include": ["index.ts", "tui.tsx", "rpc.ts", "parse.ts"]
+  "include": ["index.ts", "tui.tsx", "rpc.ts", "parse.ts", "active.ts", "tiers.ts"]
 }

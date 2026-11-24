@@ -35,14 +35,15 @@
 //
 // The session directory and the active profile are read fresh on every primary
 // context call, so a session_move or an in-session profile switch is picked up
-// on the next request. The profile follows the session's current directory: the
-// launched overlay wins, then that directory's location record in
-// <config>/.active-profile, then the last global record, then "default"; a
-// record naming a profile without profiles/<name>/tiers.json (the file this
-// consumer needs) is skipped as stale. Tier loading is fail-soft: a missing or
-// invalid tiers.json simply omits the block and never throws into the request.
-// A tier whose authored model is empty is rendered as "unavailable" and the
-// primary is told not to route work that needs it to any model.
+// on the next request. The profile follows the shared resolver
+// (plugin-src/shared/active-profile.js): the launched overlay wins, then
+// OC_PROFILE, then that directory's location record in <config>/.active-profile,
+// then the last global record, then "default"; a candidate naming a profile
+// without profiles/<name>/tiers.json (the file this consumer needs) is skipped
+// as stale. Tier loading is fail-soft: a missing or invalid tiers.json simply
+// omits the block and never throws into the request. A tier whose authored
+// model is empty is rendered as "unavailable" and the primary is told not to
+// route work that needs it to any model.
 
 import fs from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -50,11 +51,14 @@ import { fileURLToPath } from "node:url";
 
 import { Plugin } from "@opencode/plugin";
 
+import { resolveProfile } from "../shared/active-profile.js";
+
 const MARKER = "fusion-bootstrap";
 
 // index.js lives at <config>/plugin-src/fusion-bootstrap/index.js, so two
-// levels up is the config dir bin/oc launches from (the same CONFIG_DIR that
-// subagent-cap derives from its lib/ directory).
+// levels up is the config dir a launched overlay (OPENCODE_CONFIG=...) starts
+// from (the same CONFIG_DIR that subagent-cap derives from its lib/
+// directory).
 const CONFIG_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 const PRIMARY_REMINDER = [
@@ -82,81 +86,11 @@ function isSafeProfileName(name) {
   );
 }
 
-// bin/oc exports OPENCODE_CONFIG=<CONFIG_DIR>/profiles/<name>/opencode.jsonc.
-// Returns the profile name, or null when the value is absent or shaped
-// differently (base config, another file).
-export function detectLaunchedProfile(env = process.env) {
-  const raw = env && typeof env.OPENCODE_CONFIG === "string" ? env.OPENCODE_CONFIG : "";
-  if (!raw) return null;
-  const parts = raw.replace(/\\/g, "/").split("/");
-  const file = parts.pop();
-  const name = parts.pop();
-  const container = parts.pop();
-  if (file !== "opencode.jsonc" || container !== "profiles") return null;
-  return isSafeProfileName(name) ? name : null;
-}
-
-// Parse <config>/.active-profile content (format v1) without rewriting it:
-//   global\t<name>
-//   location\t<absDir>\t<name>
-// A file whose text contains no tab is the legacy single-line global form.
-// Later records override earlier ones. Invalid/unsafe names and unparseable
-// lines are skipped; the file is never rewritten. Mirrors bin/oc's
-// active_parse and profile-switcher's parseActiveStateFile.
-export function parseActiveProfile(text) {
-  const state = { global: null, locations: [] };
-  if (typeof text !== "string") return state;
-  const trimmed = text.trim();
-  if (!trimmed) return state;
-  if (!text.includes("\t")) {
-    if (isSafeProfileName(trimmed)) state.global = trimmed;
-    return state;
-  }
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    const fields = line.split("\t");
-    if (fields[0] === "global" && fields.length === 2) {
-      const name = fields[1].trim();
-      if (isSafeProfileName(name)) state.global = name;
-      continue;
-    }
-    if (fields[0] === "location" && fields.length === 3) {
-      const directory = fields[1];
-      const name = fields[2].trim();
-      if (directory === "" || !isSafeProfileName(name)) continue;
-      state.locations.push({ directory, name });
-    }
-  }
-  return state;
-}
-
-// Reads and parses the shared state file. Missing/empty/unreadable reads as no
-// records (the normal default state).
-function readActiveProfile(configDir) {
-  let text;
-  try {
-    text = fs.readFileSync(join(configDir, ".active-profile"), "utf8");
-  } catch {
-    return parseActiveProfile("");
-  }
-  return parseActiveProfile(text);
-}
-
-// The physical (symlink-resolved) spelling of a session directory, or "" when
-// it cannot be resolved.
-function canonicalDirectory(directory) {
-  try {
-    return fs.realpathSync(directory);
-  } catch {
-    return "";
-  }
-}
-
-// The tier-table consumer needs profiles/<name>/tiers.json: a record naming a
-// profile without it is stale (deleted, renamed, or overlay-only) and is
-// skipped rather than shadowing the next candidate. bin/oc and the
-// profile-switcher apply the equivalent check for the overlay they consume.
+// The tier-table consumer needs profiles/<name>/tiers.json: a candidate naming
+// a profile without it is stale (deleted, renamed, or overlay-only) and is
+// skipped rather than shadowing the next candidate. bin/opencode-profile and
+// the profile-switcher apply the equivalent check for the overlay they
+// consume.
 function profileHasTiers(configDir, name) {
   if (!isSafeProfileName(name)) return false;
   try {
@@ -166,43 +100,19 @@ function profileHasTiers(configDir, name) {
   }
 }
 
-// The profile whose tiers apply to this call, resolved in the same precedence
-// order as bin/oc's active_get_location/active_get_global and
-// profile-switcher's readActiveState: the launched overlay when OPENCODE_CONFIG
-// names one, else the location record for the session directory (canonical
-// exact match over raw exact match, later record wins), else the last global
-// record, else "default". A location or global record naming a profile without
-// profiles/<name>/tiers.json is skipped as stale, so the next candidate wins.
+// The profile whose tiers apply to this call, resolved by the shared resolver
+// with this consumer's usability rule (profiles/<name>/tiers.json exists).
 export function resolveActiveProfile(
   env = process.env,
   configDir = CONFIG_DIR,
   directory = "",
 ) {
-  const launched = detectLaunchedProfile(env);
-  if (launched) return launched;
-  const state = readActiveProfile(configDir);
-  const dir = typeof directory === "string" ? directory.trim() : "";
-  if (dir) {
-    const canonical = canonicalDirectory(dir);
-    let match = null;
-    if (canonical) {
-      for (const record of state.locations) {
-        if (record.directory === canonical && profileHasTiers(configDir, record.name)) {
-          match = record.name;
-        }
-      }
-    }
-    if (match === null) {
-      for (const record of state.locations) {
-        if (record.directory === dir && profileHasTiers(configDir, record.name)) {
-          match = record.name;
-        }
-      }
-    }
-    if (match !== null) return match;
-  }
-  if (state.global && profileHasTiers(configDir, state.global)) return state.global;
-  return "default";
+  return resolveProfile({
+    env,
+    configDir,
+    directory,
+    profileExists: (name) => profileHasTiers(configDir, name),
+  });
 }
 
 // Reads profiles/<name>/tiers.json fresh. Returns ordered rows

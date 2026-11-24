@@ -2,7 +2,7 @@ node_modules
 bun.lock
 .env
 bin/*
-!bin/oc
+!bin/opencode-profile
 .venv/
 .venv-ddgs/
 

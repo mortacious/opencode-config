@@ -213,6 +213,17 @@ export const Profile = Rpc.define({
           required: ["name"],
           additionalProperties: false,
         },
+        // The profile is tier-managed and scripts/tiers-sync.mjs rejected it
+        // (or could not write the generated overlay); nothing was persisted.
+        tiers_sync_failed: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            output: { type: "string" },
+          },
+          required: ["name", "output"],
+          additionalProperties: false,
+        },
       },
     },
     populate: {

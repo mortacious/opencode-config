@@ -1,11 +1,10 @@
 // fusion-bootstrap profile resolution tests.
 //
 // The bootstrap picks the profile whose tier table it injects from the
-// session's own directory, in the same precedence order as bin/oc
-// (active_get_location / active_get_global) and profile-switcher
-// (readActiveState), except that a record naming a profile without
-// profiles/<name>/tiers.json is skipped as stale:
-//   launched OPENCODE_CONFIG overlay > location record > global record > default
+// session's own directory, resolved by plugin-src/shared/active-profile.js,
+// except that a record naming a profile without profiles/<name>/tiers.json is
+// skipped as stale:
+//   launched OPENCODE_CONFIG overlay > OC_PROFILE > location record > global record > default
 //
 // Run: node --test plugin-src/fusion-bootstrap/test/
 
@@ -23,7 +22,11 @@ import {
 import os from "node:os";
 import path from "node:path";
 
-import { parseActiveProfile, resolveActiveProfile } from "../index.js";
+import {
+  createContextHandler,
+  resolveActiveProfile,
+} from "../index.js";
+import { parseActiveProfileText } from "../../shared/active-profile.js";
 
 const TMP_BASE = existsSync("/tmp/opencode") ? "/tmp/opencode" : os.tmpdir();
 
@@ -63,8 +66,32 @@ function makeDir(configDir, name) {
   return dir;
 }
 
+function writeTiers(configDir, name, data) {
+  writeFileSync(
+    path.join(configDir, "profiles", name, "tiers.json"),
+    JSON.stringify(data, null, 2) + "\n",
+  );
+}
+
+// Minimal primary-session harness for the injection cases: no parent, mode
+// "primary", no permission rules (the brief is irrelevant here).
+async function getSession() {
+  return { parentID: undefined };
+}
+
+async function getAgent() {
+  return {
+    data: { name: "orchestrator", mode: "primary", permissions: [] },
+  };
+}
+
+function injectedText(input) {
+  assert.equal(input.system.length, 1, "exactly one bootstrap part");
+  return input.system[0].text;
+}
+
 test("parseActiveProfile reads v1 records and skips invalid lines", () => {
-  const state = parseActiveProfile(
+  const state = parseActiveProfileText(
     [
       "location\t/a/one\tcheap-local",
       "global\tnightsense",
@@ -83,12 +110,12 @@ test("parseActiveProfile reads v1 records and skips invalid lines", () => {
 });
 
 test("parseActiveProfile reads a legacy single-line file as the global record", () => {
-  assert.deepEqual(parseActiveProfile("cheap-local\n"), {
+  assert.deepEqual(parseActiveProfileText("cheap-local\n"), {
     global: "cheap-local",
     locations: [],
   });
-  assert.deepEqual(parseActiveProfile("../escape"), { global: null, locations: [] });
-  assert.deepEqual(parseActiveProfile(""), { global: null, locations: [] });
+  assert.deepEqual(parseActiveProfileText("../escape"), { global: null, locations: [] });
+  assert.deepEqual(parseActiveProfileText(""), { global: null, locations: [] });
 });
 
 test("the launched overlay wins over every record", () => {
@@ -182,4 +209,51 @@ test("no state file resolves to default", () => {
     resolveActiveProfile({}, configDir, makeDir(configDir, "work")),
     "default",
   );
+});
+
+test("OC_PROFILE injects the named profile's tier table", async () => {
+  const configDir = makeConfigDir();
+  writeTiers(configDir, "nightsense", {
+    tiers: {
+      small: { model: "test-provider/oc-one-off", description: "one-off tier" },
+    },
+    agents: { orchestrator: "small" },
+  });
+  const handler = createContextHandler({
+    configDir,
+    env: { OC_PROFILE: "nightsense" },
+    getSession,
+    getAgent,
+  });
+  const input = { agent: "orchestrator", sessionID: "ses_root", system: [] };
+  await handler(input);
+  const text = injectedText(input);
+  assert.ok(text.includes('Model tiers (profile "nightsense"'));
+  assert.ok(text.includes("- small: test-provider/oc-one-off - one-off tier"));
+});
+
+test("an invalid OC_PROFILE falls back to the usable global profile", async () => {
+  const configDir = makeConfigDir();
+  writeState(configDir, ["global\tcheap-local"]);
+  writeTiers(configDir, "cheap-local", {
+    tiers: {
+      medium: { model: "test-provider/oc-fallback", description: "fallback tier" },
+    },
+    agents: { orchestrator: "medium" },
+  });
+  assert.equal(
+    resolveActiveProfile({ OC_PROFILE: "ghost" }, configDir, ""),
+    "cheap-local",
+  );
+  const handler = createContextHandler({
+    configDir,
+    env: { OC_PROFILE: "ghost" },
+    getSession,
+    getAgent,
+  });
+  const input = { agent: "orchestrator", sessionID: "ses_root", system: [] };
+  await handler(input);
+  const text = injectedText(input);
+  assert.ok(text.includes('Model tiers (profile "cheap-local"'));
+  assert.ok(text.includes("- medium: test-provider/oc-fallback - fallback tier"));
 });

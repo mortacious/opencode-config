@@ -14,7 +14,7 @@
 // This tool validates that file and regenerates profiles/<name>/opencode.jsonc
 // as a GENERATED overlay: one literal agents.<name>.model pin per entry plus
 // small_model set from the model of the "title" agent's tier. Consumers
-// (bin/oc, profile-switcher) keep reading literal provider/model[#variant]
+// (profile-switcher) keep reading literal provider/model[#variant]
 // strings from the overlay, so the overlay stays the source of literal pins
 // and tiers.json is the authored source of the mapping.
 //

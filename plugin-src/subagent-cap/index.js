@@ -1,10 +1,11 @@
 // subagent-cap: cap concurrent subagent spawns per OpenCode server instance.
 //
 // Effective cap = options.profiles[detectedProfile] ?? options.max, where the
-// launched profile comes from OPENCODE_CONFIG exactly like
-// profile-switcher's detectLaunchedProfile. max 0 (the default) is unlimited
-// and leaves the tool unwrapped; the base config registers
-// {"max": 0, "profiles": {"cheap-local": 3}}.
+// active profile comes from the shared resolver
+// (plugin-src/shared/active-profile.js): launched OPENCODE_CONFIG overlay >
+// OC_PROFILE > the session directory's location record > global > "default".
+// max 0 (the default) is unlimited and leaves the tool unwrapped; the base
+// config registers {"max": 0, "profiles": {"cheap-local": 3}}.
 //
 // The built-in spawn tool's real registration id on this build is unverified
 // ("subagent" per upstream V2 source, "task" in some repo artifacts), so every
@@ -24,7 +25,7 @@ import { Plugin } from "@opencode/plugin";
 
 import {
   createCapState,
-  detectLaunchedProfile,
+  detectActiveProfile,
   normalizeOptions,
   resolveEffectiveCap,
 } from "./lib/cap.js";
@@ -34,7 +35,9 @@ export default Plugin.define({
   id: "subagent-cap",
   async setup(ctx) {
     const opts = normalizeOptions(ctx.options);
-    const profile = detectLaunchedProfile();
+    const profile = detectActiveProfile({
+      directory: ctx.location?.directory,
+    });
     const cap = resolveEffectiveCap(opts, profile);
 
     if (!(cap > 0)) {

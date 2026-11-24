@@ -30,8 +30,9 @@
 //     is applied. Skipped entirely when the active profile came from launch
 //     detection.
 //
-// State sharing: CONFIG_DIR/.active-profile is the SAME file bin/oc reads and
-// writes, so the bash launcher and this plugin stay in sync. Format v1 is a
+// State sharing: CONFIG_DIR/.active-profile is the SAME file
+// bin/opencode-profile reads and writes, so the management script and this
+// plugin stay in sync. Format v1 is a
 // tab-separated record set: an optional machine-wide "global" fallback record
 // plus one "location\t<absDir>\t<name>" record per directory. Each plugin
 // instance owns the record for its own directory, so two TUI windows in
@@ -47,10 +48,16 @@
 // + rename) after re-reading the current file so a write never clobbers
 // another location.
 //
-// Launch detection: when the service was started by bin/oc,
-// OPENCODE_CONFIG points at CONFIG_DIR/profiles/<name>/opencode.jsonc - the
-// overlay is already merged into the base config, so runtimeActive = <name>
-// and NO transforms are applied (and no state file is read or written).
+// Launch and active-profile detection: the shared resolver
+// (plugin-src/shared/active-profile.js) applies one precedence order - when
+// the service was launched under an overlay (OPENCODE_CONFIG points at
+// CONFIG_DIR/profiles/<name>/opencode.jsonc), and that launched overlay wins:
+// the overlay is already merged into the base config, so runtimeActive =
+// <name> and NO transforms are applied (and no state file is written).
+// Otherwise OC_PROFILE (when it names a usable profile) wins over this
+// directory's .active-profile record, then the global record, then "default".
+// OC_PROFILE is launch-only and is never persisted; only an explicit rpc set()
+// writes the state file.
 //
 // Logging: console.log AND appendFileSync to
 // ~/.local/state/profile-switcher/profile-switcher.log (JSONL, lazy mkdir,
@@ -85,6 +92,8 @@ import { fileURLToPath } from "node:url";
 import { Model, Plugin } from "@opencode/plugin";
 
 import { readProfileFile, type ProfileModelEntry } from "./parse.js";
+import { resolveInstanceProfile } from "./active.js";
+import { syncLaunchTierOverlay, syncProfileTiers } from "./tiers.js";
 import {
   Profile,
   type ProfileAgentModelEntry,
@@ -100,12 +109,13 @@ const SERVICE = "profile-switcher";
 
 // CONFIG_DIR from import.meta.url: this file lives at
 // <CONFIG_DIR>/plugin-src/profile-switcher/index.ts, so ../.. is CONFIG_DIR -
-// the same "script dir -> parent" walk bin/oc does with readlink -f.
+// the same "script dir -> parent" walk bin/opencode-profile does with
+// readlink -f.
 const PLUGIN_DIR = dirname(fileURLToPath(import.meta.url));
 const CONFIG_DIR = resolve(PLUGIN_DIR, "..", "..");
 
 const DEFAULT_PROFILES_DIR = join(CONFIG_DIR, "profiles");
-// Shared single-line state file with bin/oc (bin/oc: ACTIVE_FILE).
+// Shared state file with bin/opencode-profile (its ACTIVE_FILE).
 const ACTIVE_FILE = join(CONFIG_DIR, ".active-profile");
 
 const STATE_DIR = join(homedir(), ".local", "state", SERVICE);
@@ -200,27 +210,6 @@ function isWindowId(value: unknown): value is string {
     value.length <= 64 &&
     /^[A-Za-z0-9_-]+$/.test(value)
   );
-}
-
-// Launched-profile detection: bin/oc exports
-// OPENCODE_CONFIG=<CONFIG_DIR>/profiles/<name>/opencode.jsonc. Detected under
-// CONFIG_DIR/profiles (the path bin/oc hardcodes as PROFILES_DIR), regardless
-// of the profilesDir option.
-function detectLaunchedProfile(): string | undefined {
-  const raw = process.env.OPENCODE_CONFIG;
-  if (!raw) return undefined;
-  let target: string;
-  try {
-    target = resolve(expandTilde(raw));
-  } catch {
-    return undefined;
-  }
-  const prefix = join(CONFIG_DIR, "profiles") + sep;
-  if (!target.startsWith(prefix)) return undefined;
-  const parts = target.slice(prefix.length).split(sep);
-  if (parts.length !== 2 || parts[1] !== "opencode.jsonc") return undefined;
-  if (!isSafeProfileName(parts[0])) return undefined;
-  return parts[0];
 }
 
 // Canonicalize a directory for .active-profile record matching: realpathSync
@@ -318,17 +307,11 @@ function parseActiveStateFile(
   };
 }
 
-// Reads the shared .active-profile state file for THIS instance. Precedence:
-// the record for realpathSync(ownDirectory), then raw ownDirectory, then the
-// global record, then "default". Missing/empty -> "default" (no warning - the
-// absent file is the normal default state). Invalid/unknown names warn and are
-// skipped WITHOUT rewriting the file. `global` is returned so setup can carry
-// the legacy machine-wide record forward on the first persist.
-function readActiveState(
-  profilesDir: string,
-  ownDirectory?: string
-): {
-  name: string;
+// Reads the shared .active-profile state file for its metadata: the validated
+// legacy global record (carried forward by the first persist) and any warning
+// about invalid, unsafe or unknown records. The active name itself comes from
+// the shared resolver (active.ts); the file is never rewritten here.
+function readActiveState(profilesDir: string): {
   global?: string;
   warning?: string;
 } {
@@ -336,34 +319,10 @@ function readActiveState(
   try {
     rawText = readFileSync(ACTIVE_FILE, "utf8");
   } catch {
-    return { name: "default" };
+    return {};
   }
   const parsed = parseActiveStateFile(profilesDir, rawText);
-  let name = "default";
-  let matched = false;
-  if (ownDirectory) {
-    const canonical = canonicalizeDirectory(ownDirectory);
-    // Later records override earlier ones for the same directory.
-    for (const record of parsed.locations) {
-      if (record.directory === canonical) {
-        name = record.name;
-        matched = true;
-      }
-    }
-    if (!matched) {
-      for (const record of parsed.locations) {
-        if (record.directory === ownDirectory) {
-          name = record.name;
-          matched = true;
-        }
-      }
-    }
-  }
-  if (!matched && parsed.global !== undefined) {
-    name = parsed.global;
-  }
   return {
-    name,
     ...(parsed.global !== undefined ? { global: parsed.global } : {}),
     ...(parsed.warning !== undefined ? { warning: parsed.warning } : {}),
   };
@@ -501,9 +460,17 @@ export default Plugin.define({
     // config already carries that overlay, so no transforms and no event
     // re-evaluation. Cleared by a successful rpc set().
     let launchSuppressed = false;
-    const launched = detectLaunchedProfile();
-    if (launched !== undefined) {
-      activeName = launched;
+    // The shared resolver applies the one precedence order everywhere:
+    // launched overlay > OC_PROFILE > this directory's record > global >
+    // "default". OC_PROFILE is launch-only and is never written to
+    // .active-profile by this read.
+    const resolution = resolveInstanceProfile({
+      configDir: CONFIG_DIR,
+      profilesDir,
+      directory: ownDirectory,
+    });
+    activeName = resolution.name;
+    if (resolution.launchSuppressed) {
       launchSuppressed = true;
       log(
         "info",
@@ -511,8 +478,10 @@ export default Plugin.define({
         { active: activeName }
       );
     } else {
-      const state = readActiveState(profilesDir, ownDirectory);
-      activeName = state.name;
+      // The name above is authoritative; this read only carries the legacy
+      // global record forward and surfaces record warnings without rewriting
+      // the file.
+      const state = readActiveState(profilesDir);
       legacyGlobal = state.global;
       if (state.warning) log("warn", state.warning, { active: activeName });
     }
@@ -1073,8 +1042,9 @@ export default Plugin.define({
       const global = parsed.global ?? legacyGlobal;
       // Degenerate environment: no location to key on. Write an EXPLICIT v1
       // machine-wide global record (not a bare tab-less name, which the parser
-      // would reinterpret as an implicit global) so bin/oc and every instance
-      // still read the new active profile through the same atomic path.
+      // would reinterpret as an implicit global) so bin/opencode-profile and
+      // every instance still read the new active profile through the same
+      // atomic path.
       // Preserve the location records already parsed (from the fresh re-read
       // above) so this degenerate write cannot wipe other directories'
       // profiles.
@@ -1371,7 +1341,16 @@ export default Plugin.define({
 
     // ---- initial application (never persists, never emits) -------------
     if (!launchSuppressed) {
-      await applyProfile(activeName, { persist: false, emit: false });
+      // Launch tier sync: a tier-managed profile's overlay is GENERATED from
+      // tiers.json. Plain and OC_PROFILE launches regenerate it here, before
+      // the first apply, so a hand-edited tiers.json is never applied stale.
+      // An OPENCODE_CONFIG launch (launchSuppressed) is already merged from its
+      // overlay, so it is skipped. A failed sync only logs; the existing
+      // overlay still applies (setup cannot abort the launch).
+      await syncLaunchTierOverlay(
+        { configDir: CONFIG_DIR, profile: activeName, launchSuppressed, log },
+        () => applyProfile(activeName, { persist: false, emit: false })
+      );
       // The core config-agent transform registers only after plugin setup, so
       // a profile active at startup would be overwritten until the pipeline
       // settles. One idempotent re-register afterward keeps ours last.
@@ -1431,6 +1410,25 @@ export default Plugin.define({
             "unknown_profile",
             "unknown profile: " + name,
             { name }
+          );
+        }
+        // A tier-managed profile's overlay is GENERATED: regenerate it from the
+        // authored tiers before anything is persisted or applied, exactly like
+        // the launcher's sync. A failure refuses the switch - no state write,
+        // no model transform - and surfaces the tiers-sync error text.
+        const tiersSync = await syncProfileTiers({
+          configDir: CONFIG_DIR,
+          profile: name,
+        });
+        if (!tiersSync.ok) {
+          log("warn", "tier sync failed; switch refused", {
+            profile: name,
+            error: tiersSync.output,
+          });
+          return context.error(
+            "tiers_sync_failed",
+            "tier sync failed for " + name + ": " + tiersSync.output,
+            { name, output: tiersSync.output }
           );
         }
         const result = await applyProfile(name, {

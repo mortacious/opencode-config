@@ -1184,7 +1184,12 @@ check('profile tiers.json validates, providers/variants resolve, and overlays ma
       continue;
     }
     for (const tier of Object.keys(data.tiers)) {
-      const parsed = parseModelRef(data.tiers[tier].model);
+      const model = data.tiers[tier].model;
+      // An empty model makes the tier unavailable in this profile; shape
+      // validation already guarantees no agent maps to it, so there is no
+      // provider/model/variant pin to resolve.
+      if (typeof model === 'string' && model.trim() === '') continue;
+      const parsed = parseModelRef(model);
       if (!parsed) continue; // shape validation already reported it
       if (!providers.has(parsed.provider)) {
         bad.push(

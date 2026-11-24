@@ -117,6 +117,15 @@ export function validateTiersData(data, agentNames) {
 
   const tiers = data.tiers;
   const tierNames = [];
+  // An empty model marks a tier unavailable in this profile and is allowed
+  // only when no agent maps to it: a mapped tier would pin a literal "".
+  const agentMapping =
+    data.agents && typeof data.agents === 'object' && !Array.isArray(data.agents)
+      ? data.agents
+      : {};
+  const mappedTiers = new Set(
+    Object.values(agentMapping).filter((tier) => typeof tier === 'string'),
+  );
   if (!tiers || typeof tiers !== 'object' || Array.isArray(tiers)) {
     errors.push('"tiers" must be an object');
   } else {
@@ -129,7 +138,13 @@ export function validateTiersData(data, agentNames) {
         errors.push(`tier "${key}" must be an object with "model" and "description"`);
         continue;
       }
-      if (!parseModelRef(entry.model)) {
+      if (typeof entry.model === 'string' && entry.model.trim() === '') {
+        if (mappedTiers.has(key)) {
+          errors.push(
+            `tier "${key}" model is empty but agents map to it; a mapped tier needs <provider>/<model>[#variant]`,
+          );
+        }
+      } else if (!parseModelRef(entry.model)) {
         errors.push(
           `tier "${key}" model ${JSON.stringify(entry.model)} is not <provider>/<model>[#variant]`,
         );

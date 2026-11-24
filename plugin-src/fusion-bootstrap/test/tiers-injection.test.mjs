@@ -58,14 +58,18 @@ after(() => {
   }
 });
 
-function makeConfigDir({ tiers, activeProfile } = {}) {
+function makeConfigDir({ tiers, activeProfile, profiles } = {}) {
   const root = mkdtempSync(path.join(TMP_BASE, "bootstrap-tiers-test-"));
   roots.push(root);
-  mkdirSync(path.join(root, "profiles", "demo"), { recursive: true });
-  if (tiers !== undefined) {
+  const fixtures = new Map([["demo", tiers]]);
+  for (const [name, value] of Object.entries(profiles || {})) fixtures.set(name, value);
+  for (const [name, value] of fixtures) {
+    const dir = path.join(root, "profiles", name);
+    mkdirSync(dir, { recursive: true });
+    if (value === undefined) continue;
     writeFileSync(
-      path.join(root, "profiles", "demo", "tiers.json"),
-      typeof tiers === "string" ? tiers : JSON.stringify(tiers, null, 2) + "\n",
+      path.join(dir, "tiers.json"),
+      typeof value === "string" ? value : JSON.stringify(value, null, 2) + "\n",
     );
   }
   if (activeProfile !== undefined) {
@@ -276,6 +280,65 @@ test("profile resolution falls back to the .active-profile global record", async
   const primary = { agent: "orchestrator", sessionID: "ses_root", system: [] };
   await handler(primary);
   assert.ok(systemText(primary).includes('Model tiers (profile "demo"'));
+});
+
+test("profile resolution follows the session directory (wiring)", async () => {
+  const probeDir = mkdtempSync(path.join(TMP_BASE, "bootstrap-probe-dir-"));
+  roots.push(probeDir);
+  const probeTiers = {
+    tiers: { probe: { model: "test-provider/probe-model", description: "probe tier" } },
+    agents: { orchestrator: "probe" },
+  };
+  const root = makeConfigDir({
+    activeProfile: "location\t" + probeDir + "\tprobe\n",
+    profiles: { probe: probeTiers },
+  });
+  const handler = createContextHandler({
+    configDir: root,
+    env: {},
+    getSession: async ({ sessionID }) => ({ location: { directory: probeDir } }),
+    getAgent,
+  });
+  const primary = { agent: "orchestrator", sessionID: "ses_root", system: [] };
+  await handler(primary);
+  const text = systemText(primary);
+  assert.ok(text.includes('Model tiers (profile "probe"'), "wired directory names the probe profile");
+  assert.ok(text.includes("- probe: test-provider/probe-model - probe tier"));
+});
+
+test("a session move re-resolves the directory on the next request (no stale profile)", async () => {
+  const dirA = mkdtempSync(path.join(TMP_BASE, "bootstrap-move-a-"));
+  const dirB = mkdtempSync(path.join(TMP_BASE, "bootstrap-move-b-"));
+  roots.push(dirA, dirB);
+  const altTiers = {
+    tiers: { alt: { model: "test-provider/alt-model", description: "alt tier" } },
+    agents: { orchestrator: "alt" },
+  };
+  const root = makeConfigDir({
+    tiers: TIERS,
+    activeProfile: ["location\t" + dirA + "\tdemo", "location\t" + dirB + "\talt"].join("\n") + "\n",
+    profiles: { alt: altTiers },
+  });
+  let directory = dirA;
+  const handler = createContextHandler({
+    configDir: root,
+    env: {},
+    getSession: async ({ sessionID }) => ({ location: { directory } }),
+    getAgent,
+  });
+  const first = { agent: "orchestrator", sessionID: "ses_root", system: [] };
+  await handler(first);
+  assert.ok(systemText(first).includes('Model tiers (profile "demo"'));
+  assert.ok(systemText(first).includes("- big: test-provider/big-model#max - hard reasoning"));
+
+  directory = dirB;
+  const second = { agent: "orchestrator", sessionID: "ses_root", system: [] };
+  await handler(second);
+  assert.ok(
+    systemText(second).includes('Model tiers (profile "alt"'),
+    "the moved session follows its new directory",
+  );
+  assert.ok(!systemText(second).includes('profile "demo"'), "no stale profile after the move");
 });
 
 test("a custom primary name gets the primary nudge (no hardcoded roster)", async () => {

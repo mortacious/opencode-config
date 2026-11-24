@@ -1,76 +1,147 @@
-// subagent-cap tests: profile mapping from OPENCODE_CONFIG.
+// subagent-cap tests: active-profile resolution through the shared resolver.
 //
-// detection mirrors profile-switcher: bin/oc sets
-// OPENCODE_CONFIG=<CONFIG_DIR>/profiles/<name>/opencode.jsonc. The env var is
-// set and restored per case.
+// The effective cap is keyed by the resolved profile: launched OPENCODE_CONFIG
+// overlay > OC_PROFILE > this directory's record in .active-profile > global >
+// "default". Each case builds an isolated config dir (profile overlays + state
+// file) so the real CONFIG_DIR and its state file are never touched.
 
-import { test } from "node:test";
+import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import {
   blockMessage,
-  detectLaunchedProfile,
+  detectActiveProfile,
   normalizeOptions,
   resolveEffectiveCap,
 } from "../lib/cap.js";
 
-// <config>/plugin-src/subagent-cap/test -> <config>
-const CONFIG_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+const TMP_BASE = existsSync("/tmp/opencode") ? "/tmp/opencode" : os.tmpdir();
+
+const roots = [];
+after(() => {
+  for (const root of roots) {
+    try {
+      rmSync(root, { recursive: true, force: true });
+    } catch {
+      // best effort
+    }
+  }
+});
+
 const OPTS = normalizeOptions({ max: 0, profiles: { "cheap-local": 3 } });
 
-function withConfig(value, fn) {
-  const saved = process.env.OPENCODE_CONFIG;
-  try {
-    if (value === undefined) delete process.env.OPENCODE_CONFIG;
-    else process.env.OPENCODE_CONFIG = value;
-    return fn();
-  } finally {
-    if (saved === undefined) delete process.env.OPENCODE_CONFIG;
-    else process.env.OPENCODE_CONFIG = saved;
-  }
+function makeConfigDir() {
+  const root = mkdtempSync(path.join(TMP_BASE, "subagent-cap-profile-test-"));
+  roots.push(root);
+  return root;
 }
 
-test("cheap-local profile resolves to cap 3", () => {
-  withConfig(join(CONFIG_DIR, "profiles", "cheap-local", "opencode.jsonc"), () => {
-    assert.equal(detectLaunchedProfile(), "cheap-local");
-    assert.equal(resolveEffectiveCap(OPTS, detectLaunchedProfile()), 3);
-  });
+function addProfile(configDir, name) {
+  const dir = path.join(configDir, "profiles", name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, "opencode.jsonc"), "{}\n");
+  return dir;
+}
+
+function makeDir(configDir, name) {
+  const dir = path.join(configDir, name);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function writeState(configDir, lines) {
+  writeFileSync(path.join(configDir, ".active-profile"), lines.join("\n") + "\n");
+}
+
+function capFor(configDir, options) {
+  return resolveEffectiveCap(OPTS, detectActiveProfile({ configDir, ...options }));
+}
+
+test("plain launch: the directory's cheap-local record applies the cap", () => {
+  const configDir = makeConfigDir();
+  const dir = makeDir(configDir, "work");
+  addProfile(configDir, "cheap-local");
+  writeState(configDir, ["location\t" + dir + "\tcheap-local"]);
+  assert.equal(
+    detectActiveProfile({ env: {}, configDir, directory: dir }),
+    "cheap-local"
+  );
+  assert.equal(capFor(configDir, { env: {}, directory: dir }), 3);
 });
 
-test("base config (no profile overlay) resolves to max", () => {
-  withConfig(join(CONFIG_DIR, "opencode.jsonc"), () => {
-    assert.equal(detectLaunchedProfile(), undefined);
-    assert.equal(resolveEffectiveCap(OPTS, detectLaunchedProfile()), 0);
-  });
-  withConfig(undefined, () => {
-    assert.equal(detectLaunchedProfile(), undefined);
-    assert.equal(resolveEffectiveCap(OPTS, detectLaunchedProfile()), 0);
-  });
+test("OC_PROFILE applies the named profile's cap", () => {
+  const configDir = makeConfigDir();
+  const dir = makeDir(configDir, "work");
+  addProfile(configDir, "cheap-local");
+  addProfile(configDir, "nightsense");
+  writeState(configDir, ["location\t" + dir + "\tnightsense"]);
+  assert.equal(
+    detectActiveProfile({
+      env: { OC_PROFILE: "cheap-local" },
+      configDir,
+      directory: dir,
+    }),
+    "cheap-local"
+  );
+  assert.equal(
+    capFor(configDir, { env: { OC_PROFILE: "cheap-local" }, directory: dir }),
+    3
+  );
 });
 
-test("unmapped profile falls back to max", () => {
-  withConfig(join(CONFIG_DIR, "profiles", "nightsense", "opencode.jsonc"), () => {
-    assert.equal(detectLaunchedProfile(), "nightsense");
-    assert.equal(resolveEffectiveCap(OPTS, detectLaunchedProfile()), 0);
-  });
-  withConfig(join(CONFIG_DIR, "profiles", "nightsense", "opencode.jsonc"), () => {
-    const capped = normalizeOptions({ max: 2, profiles: { "cheap-local": 3 } });
-    assert.equal(resolveEffectiveCap(capped, detectLaunchedProfile()), 2);
-  });
+test("no record: the base max applies", () => {
+  const configDir = makeConfigDir();
+  assert.equal(detectActiveProfile({ env: {}, configDir }), "default");
+  assert.equal(capFor(configDir, { env: {} }), 0);
+  assert.equal(
+    capFor(configDir, { env: {}, directory: makeDir(configDir, "work") }),
+    0
+  );
 });
 
-test("malformed OPENCODE_CONFIG paths are not treated as profiles", () => {
-  withConfig(join(CONFIG_DIR, "profiles", "cheap-local", "other.jsonc"), () => {
-    assert.equal(detectLaunchedProfile(), undefined);
-  });
-  withConfig(join(CONFIG_DIR, "profiles", "cheap-local", "nested", "opencode.jsonc"), () => {
-    assert.equal(detectLaunchedProfile(), undefined);
-  });
-  withConfig(join(CONFIG_DIR, "profiles", "..", "..", "opencode.jsonc"), () => {
-    assert.equal(detectLaunchedProfile(), undefined);
-  });
+test("an unusable OC_PROFILE falls through to the directory record", () => {
+  const configDir = makeConfigDir();
+  const dir = makeDir(configDir, "work");
+  addProfile(configDir, "cheap-local");
+  writeState(configDir, ["location\t" + dir + "\tcheap-local"]);
+  assert.equal(
+    capFor(configDir, { env: { OC_PROFILE: "ghost" }, directory: dir }),
+    3
+  );
+});
+
+test("OPENCODE_CONFIG overlay wins over the record and OC_PROFILE", () => {
+  const configDir = makeConfigDir();
+  const dir = makeDir(configDir, "work");
+  addProfile(configDir, "cheap-local");
+  addProfile(configDir, "nightsense");
+  writeState(configDir, ["location\t" + dir + "\tnightsense"]);
+  const env = {
+    OPENCODE_CONFIG: path.join(
+      configDir,
+      "profiles",
+      "cheap-local",
+      "opencode.jsonc"
+    ),
+    OC_PROFILE: "nightsense",
+  };
+  assert.equal(detectActiveProfile({ env, configDir, directory: dir }), "cheap-local");
+  assert.equal(capFor(configDir, { env, directory: dir }), 3);
+});
+
+test("a resolved profile without a cap entry falls back to the base max", () => {
+  const configDir = makeConfigDir();
+  addProfile(configDir, "nightsense");
+  writeState(configDir, ["global\tnightsense"]);
+  assert.equal(capFor(configDir, { env: {} }), 0);
+  const capped = normalizeOptions({ max: 2, profiles: { "cheap-local": 3 } });
+  assert.equal(
+    resolveEffectiveCap(capped, detectActiveProfile({ env: {}, configDir })),
+    2
+  );
 });
 
 test("block message carries cap, count, profile and remedy", () => {

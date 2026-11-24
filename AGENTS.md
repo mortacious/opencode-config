@@ -47,9 +47,17 @@ stays with the orchestrator.
 - Model tiers are profile data: each profile authors `profiles/<name>/tiers.json`, which defines
   the tier names, their models, one-line descriptions, and a default tier per agent. A profile may
   define different or additional tiers. `scripts/tiers-sync.mjs` GENERATES the profile's
-  `agents.*.model` pins from it - those pins are generated and must not be hand-edited. `bin/oc`
-  re-syncs at launch and refuses to launch when the sync fails (invalid `tiers.json`, unwritable
-  overlay). A profile with no `tiers.json` falls back to the base `opencode.jsonc` pins. The
+  `agents.*.model` pins from it - those pins are generated and must not be hand-edited. The sync
+  runs at four points: `./install.sh` (which runs `scripts/tiers-sync.mjs --all`), `opencode-profile
+  add`, a profile switch, and a plain/`OC_PROFILE` launch - the TUI switch and `opencode-profile
+  switch` both sync first and refuse the switch when the sync fails (invalid `tiers.json`,
+  unwritable overlay), while the `profile-switcher` plugin syncs the resolved profile's overlay at
+  setup and only logs a warning on failure (an `OPENCODE_CONFIG` launch skips it: that overlay is
+  already merged). The active profile is resolved with one precedence order everywhere: a launched
+  `OPENCODE_CONFIG` overlay first, then `OC_PROFILE`, then the per-directory record in
+  `.active-profile`, then the machine-wide fallback, then `default`. `opencode-profile` manages
+  profiles (no `oc` launch wrapper remains). A profile with no `tiers.json` falls back to the base
+  `opencode.jsonc` pins. The
   orchestrator reads the tier table from the bootstrap injection, chooses a tier per delegation,
   defaults to the delegating agent's tier, and may override one step; the chosen tier's literal
   model id goes in the `subagent` call's `model` parameter. No skill or plugin may hardcode a tier

@@ -1,4 +1,4 @@
-// subagent-cap internals: option normalization, launched-profile detection,
+// subagent-cap internals: option normalization, active-profile detection,
 // effective-cap resolution, and the running-child accounting that
 // lib/transform.js drives.
 //
@@ -11,13 +11,15 @@
 // pull-based (only on a blocked spawn attempt) - no timers, no event
 // subscriptions, no permit tokens.
 
-import { homedir } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
+import { existsSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { resolveProfile } from "../../shared/active-profile.js";
+
 // lib/ lives at <config>/plugin-src/subagent-cap/lib, so three levels up is
-// the config dir bin/oc launches from (same CONFIG_DIR that
-// profile-switcher derives from its own plugin dir).
+// the config dir a launched overlay (OPENCODE_CONFIG=...) starts from (same
+// CONFIG_DIR that profile-switcher derives from its own plugin dir).
 const CONFIG_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
 export const DEFAULT_TOOL_IDS = ["subagent", "task"];
@@ -99,38 +101,31 @@ export function normalizeOptions(raw, logger = console) {
   };
 }
 
-function expandTilde(target) {
-  if (target === "~") return homedir();
-  if (target.startsWith("~/")) return join(homedir(), target.slice(2));
-  return target;
+// A profile is usable for the cap when its overlay exists: the same notion
+// profile-switcher applies to the profiles it can actually apply. "default"
+// is the resolver's fallback name and needs no overlay of its own.
+function profileUsable(profilesDir, name) {
+  if (name === "default") return true;
+  return existsSync(join(profilesDir, name, "opencode.jsonc"));
 }
 
-function isSafeProfileName(name) {
-  if (!name) return false;
-  if (name === "." || name === "..") return false;
-  if (name.includes("/") || name.includes("\\")) return false;
-  if (name.includes(sep)) return false;
-  return true;
-}
-
-// Launched-profile detection, mirroring profile-switcher's
-// detectLaunchedProfile: bin/oc exports
-// OPENCODE_CONFIG=<CONFIG_DIR>/profiles/<name>/opencode.jsonc.
-export function detectLaunchedProfile() {
-  const raw = process.env.OPENCODE_CONFIG;
-  if (!raw) return undefined;
-  let target;
-  try {
-    target = resolve(expandTilde(raw));
-  } catch {
-    return undefined;
-  }
-  const prefix = join(CONFIG_DIR, "profiles") + sep;
-  if (!target.startsWith(prefix)) return undefined;
-  const parts = target.slice(prefix.length).split(sep);
-  if (parts.length !== 2 || parts[1] !== "opencode.jsonc") return undefined;
-  if (!isSafeProfileName(parts[0])) return undefined;
-  return parts[0];
+// The profile that applies to this session, resolved by the shared resolver
+// (plugin-src/shared/active-profile.js): launched OPENCODE_CONFIG overlay >
+// OC_PROFILE (only when it names a usable profile) > the location record for
+// the session directory (canonical match, later wins) > the last usable
+// global record > "default". Consumers pass their own usability rule through
+// profileExists; this plugin requires the profile overlay.
+export function detectActiveProfile(options = {}) {
+  const env = options.env ?? process.env;
+  const configDir = options.configDir ?? CONFIG_DIR;
+  const directory = options.directory ?? "";
+  return resolveProfile({
+    env,
+    configDir,
+    directory,
+    profileExists: (name) =>
+      profileUsable(join(configDir, "profiles"), name),
+  });
 }
 
 // profiles[detectedProfile] wins over max. 0 (or an unknown/absent profile
@@ -144,7 +139,8 @@ export function resolveEffectiveCap(opts, profile) {
 }
 
 // The profile label that reaches the calling agent in the block message.
-// Base sessions (no profile overlay) are reported as "base".
+// The shared resolver always yields a name, so a base session reads "default"
+// (the resolver's fallback); "base" remains the guard for an absent value.
 export function profileLabel(profile) {
   return typeof profile === "string" && profile ? profile : "base";
 }

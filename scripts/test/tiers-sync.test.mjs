@@ -10,7 +10,7 @@
 //   2. --check exits 0 on a synced tree and 1 with named drifts after an edit
 //   3. invalid tiers.json is rejected (missing tier, bad ref, unknown agent)
 //   4. retargeting every tier re-pins every agent (the --swap-model tiers
-//      rewrite + resync; bin/oc performs the JSON edit itself with jq)
+//      rewrite + resync; opencode-profile performs the JSON edit itself with jq)
 //
 // Run: node --test scripts/test/
 

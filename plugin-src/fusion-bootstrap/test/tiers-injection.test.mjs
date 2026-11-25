@@ -195,7 +195,10 @@ test("primary carries the active profile's tier table; child does not", async ()
       text.includes("Agent defaults: analyst=medium, orchestrator=big, reviewer=medium, sidekick=medium"),
       agent,
     );
-    assert.ok(text.includes("choose the tier whose description matches the work"), agent);
+    assert.ok(
+      text.includes("the agents mapping names each agent's default tier - a default, not a pin"),
+      agent,
+    );
     assert.ok(text.includes("subagent tool's model parameter"), agent);
     assert.ok(!text.includes("whole-branch final review uses big"), agent);
   }

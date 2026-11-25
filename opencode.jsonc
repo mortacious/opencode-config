@@ -122,6 +122,7 @@
     }
   },
   "agents": {
+    // compaction is per-profile; unset falls back to the session model
     "orchestrator": {
       "model": "opencode-go/deepseek-v4.1-flash#max"
     },

@@ -6,7 +6,8 @@
     "sidekick": { "model": "opencode-go/deepseek-v4.1-flash#max" },
     "analyst": { "model": "opencode-go/deepseek-v4.1-flash#max" },
     "reviewer": { "model": "opencode-go/deepseek-v4.1-flash#max" },
-    "title": { "model": "opencode-go/deepseek-v4.1-flash#max" }
+    "title": { "model": "opencode-go/deepseek-v4.1-flash#max" },
+    "compaction": { "model": "opencode-go/deepseek-v4.1-flash#max" }
   },
   "small_model": "opencode-go/deepseek-v4.1-flash#max"
 }

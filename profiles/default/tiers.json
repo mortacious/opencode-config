@@ -22,6 +22,7 @@
     "sidekick": "medium",
     "analyst": "medium",
     "reviewer": "medium",
-    "title": "small"
+    "title": "small",
+    "compaction": "small"
   }
 }

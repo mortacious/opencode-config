@@ -40,10 +40,11 @@ _Red-team <design / approach / claim> to decide whether it ships as stated._
 
 ## Model tier
 
-<!-- REQUIRED: one of the tier names from the injected tier table (default: this agent's tier). Name a tier only from that table. -->
+<!-- REQUIRED: a tier name from the injected tier table - the target agent's mapped tier unless the work is clearly harder or cheaper; add a Reason line when it differs. Name a tier only from that table. -->
 
-- Tier: one of the tier names from the injected tier table (default: this agent's tier)
+- Tier: the target agent's mapped tier unless the work is clearly harder or cheaper
 - Model override: `<provider>/<model>` from the injected table, or "none - default"
+- Reason (only when the tier differs from the target agent's mapped default): <one line>
 
 ## Report contract
 

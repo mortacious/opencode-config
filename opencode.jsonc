@@ -1,7 +1,7 @@
 // OpenCode v2 (branch v2-port)
 {
   "$schema": "https://opencode.ai/config.json",
-  "small_model": "opencode-go/mimo-v2.6-flash",
+  "small_model": "opencode-go/deepseek-v4.1-flash#max",
   // Single entrypoint: the built-in build/plan primaries are disabled below.
   "default_agent": "orchestrator",
   "websearch": { "provider": "exa" },
@@ -130,6 +130,7 @@
     }
   },
   "agents": {
+    // compaction is per-profile; unset falls back to the session model
     "orchestrator": {
       "model": "opencode-go/deepseek-v4.1-flash#max"
     },
@@ -145,10 +146,10 @@
       "disabled": true
     },
     "reviewer": {
-      "model": "opencode-go/deepseek-v4.1-flash"
+      "model": "opencode-go/deepseek-v4.1-flash#max"
     },
     "sidekick": {
-      "model": "opencode-go/deepseek-v4.1-flash"
+      "model": "opencode-go/deepseek-v4.1-flash#max"
     }
   },
   "providers": {

@@ -350,11 +350,13 @@ work, and the final verification. You never implement.
 
 ## Model tiers
 The active profile's `tiers.json` defines the tier names, models, and one-line descriptions; the
-bootstrap injection shows that table. Never hardcode a tier name or model id. Pick a tier per
-delegation: default to the delegating agent's tier, override one step when the work is clearly
-cheaper or harder, and use a tier whose description covers the work's modality (an image input
-needs a tier that says so). Put the chosen tier's literal model id in the `subagent` call's
-`model` parameter.
+bootstrap injection shows that table. Never hardcode a tier name or model id. The `agents`
+mapping names each agent's default tier - a default, not a pin. Pick the tier per delegation by
+the task's difficulty; when it differs from the target agent's mapped tier (or from the
+delegating agent's tier for an unmapped agent), state the reason in the spec's Model tier
+section. Use a tier whose description covers the work's modality (an image input needs a
+tier that says so). Put the chosen tier's literal model id in the `subagent` call's `model`
+parameter.
 
 ## Token economy
 - You are the expensive model: buy judgment (what to do, is it right), never reading, searching, or bulk output.

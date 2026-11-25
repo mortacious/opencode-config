@@ -268,9 +268,9 @@ fi
 
 # --- kernel plugin package (plugin-src/kernel) ---
 # The kernel tool host/plugin lives in plugin-src/kernel. Its package.json
-# declares no runtime dependencies (the Python side talks to jupyter_client
-# through the host interpreter), but the package is installed here like the
-# other local plugins so its node_modules and test deps are in place.
+# declares runtime dependencies (@opentui/core, @opentui/solid, solid-js) that
+# the opencode host supplies at runtime; they are installed here so local
+# development and the plugin's test suite run against the same versions.
 echo "Installing kernel plugin deps (plugin-src/kernel)..."
 if ! ( cd "$CONFIG_DIR/plugin-src/kernel" && npm install --no-audit --no-fund ); then
   echo "WARNING: failed to install kernel plugin deps; the plugin will not load." >&2
@@ -314,26 +314,37 @@ else
   echo "OK: all research-API secret files are populated."
 fi
 
-# --- oc wrapper (profile launcher) ---
-# bin/oc lives in this repo; symlink it onto PATH so 'oc' works from anywhere.
-# Profiles live in ./profiles/ alongside opencode.jsonc and travel via git pull.
-OC_SRC="$CONFIG_DIR/bin/oc"
-if [ ! -f "$OC_SRC" ]; then
-  echo "WARNING: bin/oc missing at $OC_SRC - profile system unavailable." >&2
+# --- opencode-profile (profile management) ---
+# bin/opencode-profile lives in this repo; symlink it onto PATH so
+# 'opencode-profile' works from anywhere. It only manages profiles - the
+# profile is applied by launching plain opencode (profile-switcher plugin) or
+# one-off with OC_PROFILE=<name> opencode. Profiles live in ./profiles/
+# alongside opencode.jsonc and travel via git pull.
+PROFILE_SRC="$CONFIG_DIR/bin/opencode-profile"
+if [ ! -f "$PROFILE_SRC" ]; then
+  echo "WARNING: bin/opencode-profile missing at $PROFILE_SRC - profile management unavailable." >&2
 else
-  chmod +x "$OC_SRC"
+  chmod +x "$PROFILE_SRC"
   # Prefer ~/.local/bin (common user PATH); fall back to /usr/local/bin if writable.
   for candidate in "$HOME/.local/bin" "/usr/local/bin"; do
     if [ -d "$candidate" ] && [ -w "$candidate" ]; then
-      ln -sf "$OC_SRC" "$candidate/oc"
-      echo "OK: 'oc' wrapper symlinked into $candidate."
+      # Drop a stale 'oc' launcher symlink, but only when it points at this
+      # config's own bin/oc (never remove an unrelated file). Both sides are
+      # canonicalized so a symlinked config dir still matches.
+      if [ -L "$candidate/oc" ] && \
+        [ "$(readlink -f "$candidate/oc" 2>/dev/null)" = "$(readlink -f "$CONFIG_DIR/bin/oc" 2>/dev/null)" ]; then
+        rm -f "$candidate/oc"
+        echo "OK: removed stale 'oc' launcher symlink from $candidate."
+      fi
+      ln -sf "$PROFILE_SRC" "$candidate/opencode-profile"
+      echo "OK: 'opencode-profile' symlinked into $candidate."
       break
     fi
   done
-  if [ ! -e "$HOME/.local/bin/oc" ] && [ ! -e "/usr/local/bin/oc" ]; then
-    echo "NOTE: no writable PATH dir found for 'oc' symlink." >&2
+  if [ ! -e "$HOME/.local/bin/opencode-profile" ] && [ ! -e "/usr/local/bin/opencode-profile" ]; then
+    echo "NOTE: no writable PATH dir found for 'opencode-profile' symlink." >&2
     echo "  Create ~/.local/bin (mkdir -p ~/.local/bin) and add it to PATH, then re-run." >&2
-    echo "  Or invoke directly: $OC_SRC" >&2
+    echo "  Or invoke directly: $PROFILE_SRC" >&2
   fi
 fi
 
@@ -348,6 +359,14 @@ if [ ! -f "$CONFIG_DIR/profiles/default/opencode.jsonc" ]; then
 PROFILE_EOF
   echo "OK: created default profile overlay."
 fi
+
+# --- tier overlays ---
+# Tier-managed profiles author tiers.json; their opencode.jsonc overlay is
+# GENERATED from it. Regenerate every tier-managed overlay so no launch reads a
+# stale expansion (the profile-switcher plugin only applies pins from the
+# overlay). A sync failure aborts the bootstrap.
+echo "Syncing tier-managed profile overlays..."
+node "$CONFIG_DIR/scripts/tiers-sync.mjs" --all
 
 # --- kernel/debugger runtime prerequisites ---
 # The kernel plugin needs a host Python with jupyter_client, a kernel

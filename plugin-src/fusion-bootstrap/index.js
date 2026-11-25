@@ -8,14 +8,17 @@
 // mutable SessionContext, and pushing onto input.system adds an instruction
 // without writing a transcript message, so nothing accumulates):
 //
-// - Primary sessions (any agent whose resolved info reports mode "primary"):
-//   check the skill catalog before acting; delegations load the
-//   fusion-delegation-spec skill and fill a dispatch template from its
-//   templates/ directory instead of a freehand task spec. When the ACTIVE
-//   profile carries profiles/<name>/tiers.json, a compact model-tier table is
-//   appended to the same part so the primary can pick a tier and pass its
-//   literal model id on the subagent call. No roster list lives here: the mode
-//   comes from agent info, so a new agents/<name>.md is picked up as-is.
+// - Primary sessions (any agent whose resolved info reports mode "primary")
+//   that the ACTIVE profile's tiers.json lists in its agents mapping: check the
+//   skill catalog before acting; delegations load the fusion-delegation-spec
+//   skill and fill a dispatch template from its templates/ directory instead of
+//   a freehand task spec. When the profile carries tiers.json, a compact
+//   model-tier table is appended to the same part so the primary can pick a
+//   tier and pass its literal model id on the subagent call. A primary the
+//   mapping does not list (a project that ships its own agents) gets the tier
+//   table and the permission brief only, never the Fusion reminder. No roster
+//   list lives here: the mode comes from agent info and the mapping from the
+//   profile, so a new agents/<name>.md is picked up as-is.
 // - Child sessions (any session with a structural parentID): the task prompt
 //   is the full specification, load the skills it names, and the report MUST
 //   begin with the "SKILLS:" line so a skipped load is visible. Every
@@ -29,14 +32,21 @@
 //
 // Parent detection is structural (ctx.session.get -> Info.parentID), never a
 // tag parsed out of the prompt: obra/superpowers skips child sessions the
-// same way. Parentage is immutable per session, so it is cached; a failed
-// lookup injects nothing and is retried on the next request rather than
-// guessed.
+// same way. Only parentage is cached, because only parentage is immutable per
+// session; a failed lookup injects nothing and is retried on the next request
+// rather than guessed.
 //
-// The active profile and its tier table are resolved fresh on every context
-// call (cheap file reads, no cache) so an in-session profile switch is picked
-// up on the next request. Tier loading is fail-soft: a missing or invalid
-// tiers.json simply omits the block and never throws into the request.
+// The session directory and the active profile are read fresh on every primary
+// context call, so a session_move or an in-session profile switch is picked up
+// on the next request. The profile follows the shared resolver
+// (plugin-src/shared/active-profile.js): the launched overlay wins, then
+// OC_PROFILE, then that directory's location record in <config>/.active-profile,
+// then the last global record, then "default"; a candidate naming a profile
+// without profiles/<name>/tiers.json (the file this consumer needs) is skipped
+// as stale. Tier loading is fail-soft: a missing or invalid tiers.json simply
+// omits the block and never throws into the request. A tier whose authored
+// model is empty is rendered as "unavailable" and the primary is told not to
+// route work that needs it to any model.
 
 import fs from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -44,11 +54,14 @@ import { fileURLToPath } from "node:url";
 
 import { Plugin } from "@opencode/plugin";
 
+import { resolveProfile } from "../shared/active-profile.js";
+
 const MARKER = "fusion-bootstrap";
 
 // index.js lives at <config>/plugin-src/fusion-bootstrap/index.js, so two
-// levels up is the config dir bin/oc launches from (the same CONFIG_DIR that
-// subagent-cap derives from its lib/ directory).
+// levels up is the config dir a launched overlay (OPENCODE_CONFIG=...) starts
+// from (the same CONFIG_DIR that subagent-cap derives from its lib/
+// directory).
 const CONFIG_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 const PRIMARY_REMINDER = [
@@ -76,55 +89,40 @@ function isSafeProfileName(name) {
   );
 }
 
-// bin/oc exports OPENCODE_CONFIG=<CONFIG_DIR>/profiles/<name>/opencode.jsonc.
-// Returns the profile name, or null when the value is absent or shaped
-// differently (base config, another file).
-export function detectLaunchedProfile(env = process.env) {
-  const raw = env && typeof env.OPENCODE_CONFIG === "string" ? env.OPENCODE_CONFIG : "";
-  if (!raw) return null;
-  const parts = raw.replace(/\\/g, "/").split("/");
-  const file = parts.pop();
-  const name = parts.pop();
-  const container = parts.pop();
-  if (file !== "opencode.jsonc" || container !== "profiles") return null;
-  return isSafeProfileName(name) ? name : null;
-}
-
-// Machine-wide fallback record from <config>/.active-profile (format v1: a
-// "global\t<name>" line; a legacy single-line file with no tab is the global
-// record). Per-directory "location" records are deliberately ignored: the
-// context hook has no reliable workspace directory for the session it
-// decorates, so the machine-wide fallback is the best available answer.
-export function readGlobalProfile(configDir) {
-  let text;
+// The tier-table consumer needs profiles/<name>/tiers.json: a candidate naming
+// a profile without it is stale (deleted, renamed, or overlay-only) and is
+// skipped rather than shadowing the next candidate. bin/opencode-profile and
+// the profile-switcher apply the equivalent check for the overlay they
+// consume.
+function profileHasTiers(configDir, name) {
+  if (!isSafeProfileName(name)) return false;
   try {
-    text = fs.readFileSync(join(configDir, ".active-profile"), "utf8");
+    return fs.statSync(join(configDir, "profiles", name, "tiers.json")).isFile();
   } catch {
-    return null;
+    return false;
   }
-  if (!text.includes("\t")) {
-    const legacy = text.trim();
-    return isSafeProfileName(legacy) ? legacy : null;
-  }
-  for (const rawLine of text.split(/\r?\n/)) {
-    const fields = rawLine.split("\t");
-    if (fields.length === 2 && fields[0] === "global") {
-      const name = fields[1].trim();
-      if (isSafeProfileName(name)) return name;
-    }
-  }
-  return null;
 }
 
-// The profile whose tiers apply to this call: the launched overlay when
-// OPENCODE_CONFIG names one, else the global fallback, else "default".
-export function resolveActiveProfile(env = process.env, configDir = CONFIG_DIR) {
-  return detectLaunchedProfile(env) || readGlobalProfile(configDir) || "default";
+// The profile whose tiers apply to this call, resolved by the shared resolver
+// with this consumer's usability rule (profiles/<name>/tiers.json exists).
+export function resolveActiveProfile(
+  env = process.env,
+  configDir = CONFIG_DIR,
+  directory = "",
+) {
+  return resolveProfile({
+    env,
+    configDir,
+    directory,
+    profileExists: (name) => profileHasTiers(configDir, name),
+  });
 }
 
 // Reads profiles/<name>/tiers.json fresh. Returns ordered rows
 // [{name, model, description}] plus the agent->tier mapping, or null on any
-// miss (absent file, bad JSON, unexpected shape) - never throws.
+// miss (absent file, bad JSON, unexpected shape) - never throws. An empty
+// model is allowed and means the tier is unavailable in this profile, unless
+// an agent maps to it (defensive: the generator and validator reject that).
 export function loadTierTable(configDir, profile) {
   if (!isSafeProfileName(profile)) return null;
   let data;
@@ -140,23 +138,25 @@ export function loadTierTable(configDir, profile) {
   if (!tiers || typeof tiers !== "object" || Array.isArray(tiers)) return null;
   if (!agents || typeof agents !== "object" || Array.isArray(agents)) return null;
   const entries = [];
-  const known = new Set();
+  const models = new Map();
   for (const name of Object.keys(tiers)) {
     const entry = tiers[name];
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
-    const model = typeof entry.model === "string" ? entry.model.trim() : "";
-    const description =
-      typeof entry.description === "string" ? entry.description.trim() : "";
-    if (model === "" || description === "") return null;
+    if (typeof entry.model !== "string") return null;
+    if (typeof entry.description !== "string") return null;
+    const model = entry.model.trim();
+    const description = entry.description.trim();
+    if (description === "") return null;
     if (/[\r\n]/.test(entry.description)) return null;
     entries.push({ name, model, description });
-    known.add(name);
+    models.set(name, model);
   }
   if (entries.length === 0) return null;
   const mapping = {};
   for (const name of Object.keys(agents)) {
     const tier = agents[name];
-    if (typeof tier !== "string" || !known.has(tier)) return null;
+    if (typeof tier !== "string" || !models.has(tier)) return null;
+    if (models.get(tier) === "") return null;
     mapping[name] = tier;
   }
   if (Object.keys(mapping).length === 0) return null;
@@ -164,24 +164,36 @@ export function loadTierTable(configDir, profile) {
 }
 
 // Compact appended block: every authored tier with its model and description,
-// every agent's default tier, and the delegation policy. Kept short because it
-// rides every request.
+// every agent's default tier, and the delegation policy. An empty model renders
+// as "unavailable" with one sentence telling the primary not to route work
+// there. Kept short because it rides every request.
 export function formatTierTable(table) {
   if (!table) return "";
   const lines = [
     'Model tiers (profile "' + table.profile + '", authored in profiles/' + table.profile + "/tiers.json):",
   ];
+  let unavailable = false;
   for (const entry of table.entries) {
-    lines.push("- " + entry.name + ": " + entry.model + " - " + entry.description);
+    if (entry.model === "") unavailable = true;
+    const model = entry.model === "" ? "unavailable" : entry.model;
+    lines.push("- " + entry.name + ": " + model + " - " + entry.description);
   }
   const defaults = Object.keys(table.mapping)
     .sort()
     .map((name) => name + "=" + table.mapping[name])
     .join(", ");
   lines.push("- Agent defaults: " + defaults);
+  if (unavailable) {
+    lines.push(
+      "A tier marked unavailable has no model in this profile; do not route work " +
+        "that needs it to any model, and tell the user it is unavailable.",
+    );
+  }
   lines.push(
-    "Policy: choose the tier whose description matches the work, default to the " +
-      "delegating agent's tier; to override, pass that tier's model id as the " +
+    "Policy: the agents mapping names each agent's default tier - a default, not a pin. " +
+      "Choose the tier by the task's difficulty; when it differs from the target agent's " +
+      "mapped tier (an unmapped agent defaults to the delegating agent's tier), state the " +
+      "reason in the spec's Model tier section. Pass the chosen tier's model id as the " +
       "subagent tool's model parameter.",
   );
   return lines.join("\n");
@@ -348,7 +360,9 @@ function inject(input, text) {
 // Testable decision core: resolves parentage, picks the reminder for the
 // session kind, appends the session agent's permission brief, and appends the
 // active profile's tier table for primaries.
-// options: { configDir?, env?, getSession, getAgent?, log? }
+// options: { configDir?, env?, getSession, getAgent?, location?, log? }
+// location is the plugin context's Location.Info, used only as a fallback for
+// the session directory.
 export function createContextHandler(options = {}) {
   const configDir =
     typeof options.configDir === "string" ? options.configDir : CONFIG_DIR;
@@ -357,9 +371,15 @@ export function createContextHandler(options = {}) {
     typeof options.getSession === "function" ? options.getSession : null;
   const getAgent =
     typeof options.getAgent === "function" ? options.getAgent : null;
+  // The plugin context's own directory, used when the session lookup yields no
+  // location. Not cached either: it is only a fallback.
+  const contextLocation =
+    options.location && typeof options.location === "object" ? options.location : null;
 
-  // Parentage cache: sessionID -> parentID (null = root session).
-  const parentIDs = new Map();
+  // Session cache: sessionID -> parentID. Only parentage is cached, because
+  // only parentage is immutable per session; the session directory moves with
+  // session_move, so it is read fresh on every primary request.
+  const sessions = new Map();
   const CACHE_LIMIT = 2048;
 
   // Permission briefs: agent name -> brief text. Agent definitions and their
@@ -406,15 +426,15 @@ export function createContextHandler(options = {}) {
     return brief;
   }
 
-  // Returns { known, parentID }. known=false means the session lookup
-  // failed or returned nothing; the caller injects nothing for that
-  // request and the next request retries.
+  // Returns { known, parentID }. known=false means the session lookup failed
+  // or returned nothing; the caller injects nothing for that request and the
+  // next request retries.
   async function resolveParent(sessionID) {
     if (typeof sessionID !== "string" || !sessionID) {
       return { known: false, parentID: null };
     }
-    if (parentIDs.has(sessionID)) {
-      return { known: true, parentID: parentIDs.get(sessionID) };
+    if (sessions.has(sessionID)) {
+      return { known: true, parentID: sessions.get(sessionID) };
     }
     if (!getSession) return { known: false, parentID: null };
     let info;
@@ -428,9 +448,37 @@ export function createContextHandler(options = {}) {
     }
     const parentID =
       typeof info.parentID === "string" && info.parentID ? info.parentID : null;
-    if (parentIDs.size >= CACHE_LIMIT) parentIDs.clear();
-    parentIDs.set(sessionID, parentID);
+    if (sessions.size >= CACHE_LIMIT) sessions.clear();
+    sessions.set(sessionID, parentID);
     return { known: true, parentID };
+  }
+
+  // The session's current directory, reread on every primary request: a
+  // session_move changes it, so caching it would keep the previous profile's
+  // tier table until eviction or restart. Falls back to the plugin context's
+  // directory, then "".
+  async function sessionDirectory(sessionID) {
+    if (getSession && typeof sessionID === "string" && sessionID) {
+      try {
+        const info = await getSession({ sessionID });
+        const location = info && typeof info === "object" ? info.location : null;
+        if (
+          location &&
+          typeof location === "object" &&
+          typeof location.directory === "string" &&
+          location.directory
+        ) {
+          return location.directory;
+        }
+      } catch {
+        // Fall back to the plugin context directory below.
+      }
+    }
+    const fallback =
+      contextLocation && typeof contextLocation.directory === "string"
+        ? contextLocation.directory
+        : "";
+    return fallback;
   }
 
   // "context" fires once per primary model request (the compaction, title
@@ -449,16 +497,26 @@ export function createContextHandler(options = {}) {
         return;
       }
       // Capability detection, not a roster: only an agent whose resolved info
-      // reports mode "primary" gets the primary nudge. Unavailable agent info
+      // reports mode "primary" is decorated at all. Unavailable agent info
       // (no getAgent option, failed or incomplete lookup) injects nothing for
       // this request; the next request retries.
       if ((await agentMode(agent)) !== "primary") return;
+      // The Fusion reminder is for this configuration's own primaries: an agent
+      // listed in the active profile's tiers.json agents mapping. Any other
+      // primary (a project shipping its own agents) still gets the permission
+      // brief and the tier table, never the Fusion workflow nudge.
       const brief = await permissionBrief(agent);
-      const profile = resolveActiveProfile(env, configDir);
+      const directory = await sessionDirectory(input.sessionID);
+      const profile = resolveActiveProfile(env, configDir, directory);
       const tierTable = loadTierTable(configDir, profile);
-      let text = brief ? PRIMARY_REMINDER + "\n\n" + brief : PRIMARY_REMINDER;
-      if (tierTable) text += "\n\n" + formatTierTable(tierTable);
-      inject(input, text);
+      const wantsReminder =
+        tierTable !== null && Object.hasOwn(tierTable.mapping, agent);
+      const parts = [];
+      if (wantsReminder) parts.push(PRIMARY_REMINDER);
+      if (brief) parts.push(brief);
+      if (tierTable) parts.push(formatTierTable(tierTable));
+      if (parts.length === 0) return;
+      inject(input, parts.join("\n\n"));
     } catch {
       // A reminder must never fail the model request it decorates.
     }
@@ -476,6 +534,8 @@ export default Plugin.define({
         ctx.agent && typeof ctx.agent.get === "function"
           ? (args) => ctx.agent.get(args)
           : null,
+      // The typed hook input carries no location; the plugin context does.
+      location: ctx.location,
     });
 
     const registration = await ctx.session.hook("context", onContext);

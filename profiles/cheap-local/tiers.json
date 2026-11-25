@@ -13,7 +13,7 @@
       "description": "mechanical single-file edits, lint fixes, and boilerplate"
     },
     "vision": {
-      "model": "Amenable Thor 1/qwen38-flash-next",
+      "model": "",
       "description": "image, screenshot, diagram, and visual PDF inspection; requires a vision-capable model"
     }
   },
@@ -22,6 +22,7 @@
     "sidekick": "medium",
     "analyst": "medium",
     "reviewer": "medium",
-    "title": "small"
+    "title": "small",
+    "compaction": "small"
   }
 }

@@ -1,47 +1,37 @@
 #!/usr/bin/env bash
-# oc - opencode profile launcher.
-# Launches opencode under a profile overlay (profiles/<name>/opencode.jsonc)
-# by setting OPENCODE_CONFIG (opencode deep-merges the overlay on top of the
-# base config). Also manages profiles and installs external project-local
-# bundles (e.g. agentic-vault).
+# opencode-profile - manage opencode profile overlays (profiles/<name>/).
+# This is a MANAGEMENT tool only: it never launches opencode and installs
+# nothing. The active profile is applied when opencode starts - the
+# profile-switcher plugin resolves it (per-directory record, global fallback,
+# OC_PROFILE), or you start a one-off with:
+#   OC_PROFILE=<name> opencode
 set -euo pipefail
 
-# Resolve paths. Works in the dev repo (bin/oc next to profiles/) and when
-# deployed to ~/.config/opencode/bin/oc (symlinked onto PATH from install.sh).
+# Resolve paths. Works in the dev repo (bin/opencode-profile next to
+# profiles/) and when deployed to ~/.config/opencode/bin/opencode-profile
+# (symlinked onto PATH from install.sh).
 SCRIPT_PATH="$(readlink -f "$0")"
 BIN_DIR="$(dirname "$SCRIPT_PATH")"
 CONFIG_DIR="$(dirname "$BIN_DIR")"
 PROFILES_DIR="$CONFIG_DIR/profiles"
 ACTIVE_FILE="$CONFIG_DIR/.active-profile"
 
-# Bundle lookup table (extend with new bundles here).
-BUNDLE_URL=""
-resolve_bundle() {
-  local bundle="${1:-}"
-  case "$bundle" in
-    agentic-vault)
-      BUNDLE_URL="https://github.com/mortacious/agentic-vault.git"
-      ;;
-    *)
-      echo "Unknown bundle: $bundle" >&2
-      exit 1
-      ;;
-  esac
-}
-
 usage() {
   cat <<'EOF'
-Usage: oc [profile] [args...]        Launch opencode with a profile (default: 'default')
-       oc profile list                List profiles
-       oc profile current             Print the effective active profile name
-       oc profile switch [--global] <name>
-                                      Set the profile for this directory;
-                                      --global sets the machine-wide fallback
-       oc profile add <name> [--clone <src>] [--swap-model "<provider/model>"]
-       oc profile delete <name>       Delete a profile (refuses 'default')
-       oc profile rename <old> <new>  Rename a profile (refuses 'default')
-       oc profile install <bundle> <target-dir>
-       oc completion <shell>          Emit a shell completion script (fish, bash, zsh)
+Usage: opencode-profile list                List profiles
+       opencode-profile current             Print the effective active profile name
+       opencode-profile switch [--global] <name>
+                                            Set the profile for this directory;
+                                            --global sets the machine-wide fallback
+       opencode-profile add <name> [--clone <src>] [--swap-model "<provider>/<model>[#variant]"]
+                                            Create a profile
+       opencode-profile delete <name>       Delete a profile (refuses 'default')
+       opencode-profile rename <old> <new>  Rename a profile (refuses 'default')
+       opencode-profile --help              Show this help
+
+This tool only manages profile files and the .active-profile state. A profile
+is applied by launching plain 'opencode' (the profile-switcher plugin reads the
+state), or one-off with: OC_PROFILE=<name> opencode
 EOF
 }
 
@@ -54,6 +44,31 @@ EOF
 # fallback (an explicit per-directory default). Missing/empty file -> no
 # records. Structurally unparseable lines are ignored. This is the same file
 # and format the profile-switcher plugin reads and writes.
+
+# A profile name must be a single path segment: never empty, ".", "..", or a
+# path separator. Mirrors the shared isSafeProfileName
+# (plugin-src/shared/active-profile.js) so a name that reaches a path is always
+# exactly one directory under profiles/.
+safe_name() {
+  local name="${1:-}"
+  if [ -z "$name" ] || [ "$name" = "." ] || [ "$name" = ".." ]; then
+    return 1
+  fi
+  case "$name" in
+    */*|*\\*) return 1 ;;
+  esac
+  return 0
+}
+
+# Refuse an unsafe name before it reaches any path (mkdir, rm, mv, or a state
+# write).
+require_safe_name() {
+  local name="${1:-}"
+  if ! safe_name "$name"; then
+    echo "Invalid profile name: ${name:-<empty>}" >&2
+    exit 1
+  fi
+}
 
 # Physical (symlink-resolved) spelling of a directory, falling back to the raw
 # value when it cannot be resolved.
@@ -187,7 +202,7 @@ profile_list() {
     echo "No profiles directory at $PROFILES_DIR"
     exit 0
   fi
-  # Effective active profile for the current directory (see resolve_profile).
+  # Effective active profile for the current directory (see profile_current).
   local active
   active="$(profile_current)"
   local overlay name
@@ -201,6 +216,22 @@ profile_list() {
       fi
     fi
   done
+}
+
+# Switch-time tier sync. A tier-managed profile (profiles/<name>/tiers.json)
+# has a GENERATED overlay, so regenerate it from the authored tiers before a
+# switch applies - the same sync the launcher used to run. Non-tier profiles
+# have nothing to sync. The script's own stderr carries the error output.
+sync_tiers_for_switch() {
+  local name="$1"
+  if [ ! -f "$PROFILES_DIR/$name/tiers.json" ]; then
+    return 0
+  fi
+  if ! node "$CONFIG_DIR/scripts/tiers-sync.mjs" --profile "$name"; then
+    echo "Tier sync failed for profile: $name (profile not switched)" >&2
+    return 1
+  fi
+  return 0
 }
 
 profile_switch() {
@@ -230,8 +261,15 @@ profile_switch() {
     usage >&2
     exit 1
   fi
+  require_safe_name "$name"
   if [ ! -f "$PROFILES_DIR/$name/opencode.jsonc" ]; then
-    echo "No such profile: $name (run 'oc profile list')" >&2
+    echo "No such profile: $name (run 'opencode-profile list')" >&2
+    exit 1
+  fi
+  # Regenerate a tier-managed profile's GENERATED overlay from its authored
+  # tiers before the switch applies. Runs before any state write, so a failed
+  # sync leaves .active-profile untouched and the switch refused.
+  if ! sync_tiers_for_switch "$name"; then
     exit 1
   fi
   read_active_state
@@ -309,6 +347,11 @@ profile_add() {
     esac
   done
 
+  require_safe_name "$name"
+  if [ -n "$src" ]; then
+    require_safe_name "$src"
+  fi
+
   if [ -e "$PROFILES_DIR/$name" ]; then
     echo "Profile already exists: $name" >&2
     exit 1
@@ -341,7 +384,11 @@ PROFILE_EOF
       # overlay from tiers.json. Per-agent pin rewriting no longer applies:
       # the overlay is generated and is never edited directly.
       local tiers="$PROFILES_DIR/$name/tiers.json"
-      if ! jq --arg model "$model" '.tiers |= with_entries(.value = $model)' \
+      # tiers.json values are AUTHORED objects ({model, description}); replace
+      # only the model, keeping every description and adding a model when a
+      # tier has none. Replacing the whole value with a bare string would make
+      # the file invalid for tiers-sync.
+      if ! jq --arg model "$model" '.tiers |= with_entries(.value |= (.model = $model))' \
         "$tiers" > "$tiers.tmp"; then
         rm -f "$tiers.tmp"
         echo "Failed to rewrite $tiers" >&2
@@ -379,8 +426,8 @@ PROFILE_EOF
 }
 
 profile_current() {
-  # Effective active profile for the current directory, mirroring
-  # resolve_profile precedence WITHOUT an explicit positional arg:
+  # Effective active profile for the current directory, mirroring the
+  # profile-switcher resolution precedence WITHOUT an explicit profile arg:
   # OC_PROFILE > per-directory record > global record (or legacy single-line)
   # > literal "default". Prints just the name.
   if [ -n "${OC_PROFILE:-}" ] && [ -f "$PROFILES_DIR/$OC_PROFILE/opencode.jsonc" ]; then
@@ -405,12 +452,13 @@ profile_current() {
 
 profile_delete() {
   local name="$1"
+  require_safe_name "$name"
   if [ "$name" = "default" ]; then
     echo "Refusing to delete the 'default' profile (it is the fallback)." >&2
     exit 1
   fi
   if [ ! -d "$PROFILES_DIR/$name" ]; then
-    echo "No such profile: $name (run 'oc profile list')" >&2
+    echo "No such profile: $name (run 'opencode-profile list')" >&2
     exit 1
   fi
   rm -rf "$PROFILES_DIR/$name"
@@ -443,12 +491,14 @@ profile_delete() {
 profile_rename() {
   local old="$1"
   local new="$2"
+  require_safe_name "$old"
+  require_safe_name "$new"
   if [ "$old" = "default" ]; then
     echo "Refusing to rename the 'default' profile." >&2
     exit 1
   fi
   if [ ! -d "$PROFILES_DIR/$old" ]; then
-    echo "No such profile: $old (run 'oc profile list')" >&2
+    echo "No such profile: $old (run 'opencode-profile list')" >&2
     exit 1
   fi
   if [ -e "$PROFILES_DIR/$new" ]; then
@@ -483,40 +533,16 @@ profile_rename() {
   echo "Renamed profile: $old -> $new"
 }
 
-profile_install() {
-  local bundle="$1"
-  local target_dir="$2"
-  BUNDLE_URL=""
-  resolve_bundle "$bundle"
-  if [ ! -d "$target_dir" ]; then
-    echo "Target dir does not exist: $target_dir" >&2
-    exit 1
-  fi
-  local dest="$target_dir/.agentic-vault"
-  if [ -d "$dest" ]; then
-    echo "Note: $dest already exists; skipping clone."
-  else
-    git clone "$BUNDLE_URL" "$dest"
-  fi
-  # Project-local install mirrors the bundle's own setup model - the global
-  # profile system does NOT carry the bundle's agents/skills/knowledge; only
-  # this launcher copies them per-target.
-  bash "$dest/setup.sh"
-  echo "Installed $bundle into $target_dir (project-local .opencode/)."
-}
-
-profile_cmd() {
-  if [ $# -lt 1 ]; then
-    usage >&2
-    exit 1
-  fi
-  local sub="$1"
-  shift
-  case "$sub" in
+main() {
+  case "${1:-}" in
     list)
       profile_list
       ;;
+    current)
+      profile_current
+      ;;
     switch)
+      shift
       if [ $# -lt 1 ]; then
         usage >&2
         exit 1
@@ -524,30 +550,23 @@ profile_cmd() {
       profile_switch "$@"
       ;;
     add)
+      shift
       if [ $# -lt 1 ]; then
         usage >&2
         exit 1
       fi
       profile_add "$@"
       ;;
-    current)
-      profile_current
-      ;;
     delete)
+      shift
       if [ $# -lt 1 ]; then
         usage >&2
         exit 1
       fi
       profile_delete "$1"
       ;;
-    install)
-      if [ $# -lt 2 ]; then
-        usage >&2
-        exit 1
-      fi
-      profile_install "$1" "$2"
-      ;;
     rename)
+      shift
       if [ $# -lt 2 ]; then
         usage >&2
         exit 1
@@ -559,169 +578,10 @@ profile_cmd() {
       exit 0
       ;;
     *)
+      # No launch path: an unknown command (including a bare profile name,
+      # which the old launcher forwarded to opencode) is a usage error.
       usage >&2
       exit 1
-      ;;
-  esac
-}
-
-completion_cmd() {
-  local shell="${1:-}"
-  if [ -z "$shell" ]; then
-    echo "Usage: oc completion <shell>    (supported: fish, bash, zsh)" >&2
-    exit 1
-  fi
-  case "$shell" in
-    fish)
-      # Emit a fish completion script for the oc wrapper's own subcommands.
-      # Fish autoloads this via its embedded 'completions/oc.fish' default
-      # (= 'oc completion fish | source'), so a valid script here replaces
-      # the broken bash that opencode would emit if 'completion' fell through
-      # to the catch-all and got forwarded.
-      cat <<'FISH_EOF'
-# oc completion - generated by 'oc completion fish'.
-# Completions for the oc profile launcher (NOT OpenShift oc).
-
-function __oc_profiles
-    # Resolve the real bin/oc path even if invoked via symlink, then walk up
-    # to the config dir to find profiles/.
-    set -l oc_path (command -v oc 2>/dev/null)
-    if test -z "$oc_path"
-        return
-    end
-    set -l real_path (readlink -f $oc_path)
-    set -l bin_dir (dirname $real_path)
-    set -l config_dir (dirname $bin_dir)
-    set -l profiles_dir "$config_dir/profiles"
-    if test -d "$profiles_dir"
-        for f in $profiles_dir/*/opencode.jsonc
-            if test -f $f
-                basename (dirname $f)
-            end
-        end
-    end
-end
-
-# Suppress filename completion for positional args by default.
-complete -c oc -f
-
-# Top-level first arg: 'profile' subcommand, a profile name (default action),
-# or --help/-h.
-complete -c oc -n "__fish_use_subcommand" -a "profile" -d "Manage profiles"
-complete -c oc -n "__fish_use_subcommand" -a "(__oc_profiles)" -d "Launch opencode under this profile"
-complete -c oc -n "__fish_use_subcommand" -l help -s h -d "Show usage"
-
-# 'profile' subcommand: list, switch, add, install.
-complete -c oc -n "__fish_seen_subcommand_from profile" -a "list" -d "List profiles"
-complete -c oc -n "__fish_seen_subcommand_from profile" -a "current" -d "Print active profile"
-complete -c oc -n "__fish_seen_subcommand_from profile" -a "switch" -d "Set profile for this directory (or --global fallback)"
-complete -c oc -n "__fish_seen_subcommand_from profile" -a "add" -d "Create a new profile"
-
-# 'profile switch [--global] <name>': complete existing profile names.
-complete -c oc -n "__fish_seen_subcommand_from switch" -l global -d "Set the machine-wide fallback profile"
-complete -c oc -n "__fish_seen_subcommand_from switch" -a "(__oc_profiles)" -d "Profile name"
-complete -c oc -n "__fish_seen_subcommand_from profile" -a "delete" -d "Delete a profile"
-complete -c oc -n "__fish_seen_subcommand_from profile" -a "rename" -d "Rename a profile"
-complete -c oc -n "__fish_seen_subcommand_from profile" -a "install" -d "Install an external bundle"
-
-# 'profile delete <name>': complete existing profile names.
-complete -c oc -n "__fish_seen_subcommand_from delete" -a "(__oc_profiles)" -d "Profile to delete"
-
-# 'profile rename <old> <new>': old from existing, new is free-form.
-complete -c oc -n "__fish_seen_subcommand_from rename" -a "(__oc_profiles)" -d "Profile to rename"
-
-# 'profile add <name> [--clone <src>] [--swap-model "<provider/model>"]'.
-# --clone takes an existing profile name; --swap-model takes a free-form model id.
-complete -c oc -n "__fish_seen_subcommand_from add" -l clone -d "Fork from existing profile" -r -a "(__oc_profiles)"
-complete -c oc -n "__fish_seen_subcommand_from add" -l swap-model -d "Rewrite every agent model + small_model to this id" -r
-
-# 'profile install <bundle> <target-dir>': complete known bundle names, then a directory.
-complete -c oc -n "__fish_seen_subcommand_from install" -a "agentic-vault" -d "Install bundle"
-FISH_EOF
-      ;;
-    bash|zsh)
-      # opencode's own 'completion' subcommand already emits a bash/yargs script
-      # that hardcodes opencode's subcommand tree - it does not describe oc's
-      # surface and would be misleading. Emit a minimal stub rather than forward.
-      echo "# oc completion for $shell: not implemented (only fish is supported)."
-      echo "# Use 'oc --help' to see available subcommands."
-      exit 0
-      ;;
-    *)
-      echo "oc completion: unsupported shell '$shell' (supported: fish, bash, zsh)" >&2
-      exit 1
-      ;;
-  esac
-}
-
-resolve_profile() {
-  local name="${1:-}"
-  # 1. Explicit first arg naming a profile.
-  if [ -n "$name" ] && [ -f "$PROFILES_DIR/$name/opencode.jsonc" ]; then
-    echo "$name"
-    return 0
-  fi
-  # 2. OC_PROFILE env var.
-  if [ -n "${OC_PROFILE:-}" ] && [ -f "$PROFILES_DIR/$OC_PROFILE/opencode.jsonc" ]; then
-    echo "$OC_PROFILE"
-    return 0
-  fi
-  # 3. Per-directory record for the current directory (a "default" record
-  #    counts as present and overrides the global fallback).
-  read_active_state
-  local loc
-  loc="$(active_get_location)"
-  if [ -n "$loc" ]; then
-    echo "$loc"
-    return 0
-  fi
-  # 4. Global record (or legacy single-line value).
-  local glob
-  glob="$(active_get_global)"
-  if [ -n "$glob" ]; then
-    echo "$glob"
-    return 0
-  fi
-  # 5. Fallback.
-  echo "default"
-}
-
-main() {
-  case "${1:-}" in
-    profile)
-      shift
-      profile_cmd "$@"
-      ;;
-    completion)
-      shift
-      completion_cmd "$@"
-      ;;
-    --help|-h)
-      usage
-      exit 0
-      ;;
-    *)
-      local profile
-      profile="$(resolve_profile "${1:-}")"
-      if [ -n "${1:-}" ] && [ -f "$PROFILES_DIR/$1/opencode.jsonc" ]; then
-        shift
-      fi
-      if ! command -v opencode >/dev/null 2>&1; then
-        echo "opencode not found on PATH" >&2
-        exit 1
-      fi
-      # Tier-managed profiles regenerate their overlay first: tiers.json is the
-      # authored mapping, the overlay holds the literal provider/model pins that
-      # opencode and profile-switcher read. Never launch on a stale expansion.
-      if [ -f "$PROFILES_DIR/$profile/tiers.json" ]; then
-        if ! node "$CONFIG_DIR/scripts/tiers-sync.mjs" --profile "$profile"; then
-          echo "oc: tier sync failed for profile '$profile'; refusing to launch with stale model pins" >&2
-          exit 1
-        fi
-      fi
-      export OPENCODE_CONFIG="$PROFILES_DIR/$profile/opencode.jsonc"
-      echo "Using profile: $profile" >&2
-      exec opencode "$@"
       ;;
   esac
 }

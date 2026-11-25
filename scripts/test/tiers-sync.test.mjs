@@ -10,7 +10,7 @@
 //   2. --check exits 0 on a synced tree and 1 with named drifts after an edit
 //   3. invalid tiers.json is rejected (missing tier, bad ref, unknown agent)
 //   4. retargeting every tier re-pins every agent (the --swap-model tiers
-//      rewrite + resync; bin/oc performs the JSON edit itself with jq)
+//      rewrite + resync; opencode-profile performs the JSON edit itself with jq)
 //
 // Run: node --test scripts/test/
 
@@ -55,6 +55,7 @@ const TIERS = {
     analyst: "medium",
     reviewer: "medium",
     title: "small",
+    compaction: "small",
   },
 };
 
@@ -109,11 +110,13 @@ test("expansion writes the generated overlay shape and re-sync is a no-op", () =
       analyst: { model: "test-provider/medium-model" },
       reviewer: { model: "test-provider/medium-model" },
       title: { model: "test-provider/small-model" },
+      compaction: { model: "test-provider/small-model" },
     },
     small_model: "test-provider/small-model",
   });
   assert.match(text, /^ {2}"agents": \{$/m);
   assert.match(text, /^ {4}"orchestrator": \{ "model": "test-provider\/big-model#max" \},$/m);
+  assert.equal(config.agents.compaction.model, "test-provider/small-model");
 
   const second = run(root, ["--profile", "demo"]);
   assert.equal(second.status, 0, second.stderr);
@@ -218,4 +221,33 @@ test("custom tier names are profile data: expansion uses the file's own names", 
   assert.equal(config.agents.orchestrator.model, "test-provider/deep-model#max");
   assert.equal(config.agents.sidekick.model, "test-provider/quick-model");
   assert.equal(config.small_model, "test-provider/quick-model");
+});
+
+test("an empty model is allowed on an unmapped tier and does not reach the overlay", () => {
+  const root = makeRoot();
+  const data = structuredClone(TIERS);
+  data.tiers.vision.model = "";
+  writeTiers(root, "demo", data);
+  const synced = run(root, ["--profile", "demo"]);
+  assert.equal(synced.status, 0, synced.stderr);
+  const { config } = readOverlay(root);
+  assert.equal(Object.prototype.hasOwnProperty.call(config.agents, "vision"), false);
+  assert.equal(config.agents.orchestrator.model, "test-provider/big-model#max");
+  const checked = run(root, ["--check", "--profile", "demo"]);
+  assert.equal(checked.status, 0, checked.stderr);
+  assert.match(checked.stdout, /0 drift\(s\)/);
+});
+
+test("an empty model on a mapped tier is rejected", () => {
+  const root = makeRoot();
+  const data = structuredClone(TIERS);
+  data.tiers.small.model = "";
+  writeTiers(root, "demo", data);
+  const result = run(root, ["--profile", "demo"]);
+  assert.equal(result.status, 1);
+  assert.match(
+    result.stderr,
+    /tier "small" model is empty but agents map to it; a mapped tier needs <provider>\/<model>\[#variant\]/,
+  );
+  assert.equal(existsSync(overlayPath(root)), false, "no overlay written");
 });

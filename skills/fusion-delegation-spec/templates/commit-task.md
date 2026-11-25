@@ -57,10 +57,11 @@ _Record the verified <change> as one commit; no rework._
 
 ## Model tier
 
-<!-- REQUIRED: use the mechanical tier the profile defines if any, else the agent's default. Name a tier only from the injected tier table. -->
+<!-- REQUIRED: a tier name from the injected tier table - the target agent's mapped tier unless the work is clearly harder or cheaper; a commit is usually the cheapest mechanical tier, so name it and add the Reason line. Name a tier only from that table. -->
 
-- Tier: the mechanical tier from the injected tier table if the profile defines one, else this agent's default
+- Tier: the target agent's mapped tier unless the work is clearly harder or cheaper
 - Model override: `<provider>/<model>` from the injected table, or "none - default"
+- Reason (only when the tier differs from the target agent's mapped default): <one line>
 
 ## Report contract
 

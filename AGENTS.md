@@ -60,12 +60,15 @@ This pattern describes this configuration repository and the coding sessions it 
   `.active-profile`, then the machine-wide fallback, then `default`. `opencode-profile` manages
   profiles (no `oc` launch wrapper remains). A profile with no `tiers.json` falls back to the base
   `opencode.jsonc` pins. The
-  orchestrator reads the tier table from the bootstrap injection, chooses a tier per delegation,
-  defaults to the delegating agent's tier, and may override one step; the chosen tier's literal
-  model id goes in the `subagent` call's `model` parameter. No skill or plugin may hardcode a tier
-  name: a modality requirement such as image input is whatever a tier's description says. A tier
-  whose model is empty is unavailable: do not route work that needs that modality to any model, and
-  tell the user it is unavailable. Agent frontmatter never carries a model.
+  orchestrator reads the tier table from the bootstrap injection and chooses a tier per
+  delegation. The `agents` mapping names each agent's default tier - a default, not a pin: pick
+  the tier by the task's difficulty, and when it differs from the target agent's mapped tier (or
+  from the delegating agent's tier for an unmapped agent), state the reason in the spec's Model
+  tier section. The chosen tier's literal model id goes in the `subagent` call's `model`
+  parameter. No skill or plugin may hardcode a tier name: a modality requirement such as image
+  input is whatever a tier's description says. A tier whose model is empty is unavailable: do not
+  route work that needs that modality to any model, and tell the user it is unavailable. Agent
+  frontmatter never carries a model.
 - Skills are advertised session-wide and filtered only by `skill` permission rules. An agent that
   needs a method loads it with the `skill` tool; restrict exposure with `skill` rules if needed.
 - Branch plan logs follow the `fusion-plan-log` skill: `.plans/<branch>.md`, live sections

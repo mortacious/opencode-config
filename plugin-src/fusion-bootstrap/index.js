@@ -190,8 +190,10 @@ export function formatTierTable(table) {
     );
   }
   lines.push(
-    "Policy: choose the tier whose description matches the work, default to the " +
-      "delegating agent's tier; to override, pass that tier's model id as the " +
+    "Policy: the agents mapping names each agent's default tier - a default, not a pin. " +
+      "Choose the tier by the task's difficulty; when it differs from the target agent's " +
+      "mapped tier (an unmapped agent defaults to the delegating agent's tier), state the " +
+      "reason in the spec's Model tier section. Pass the chosen tier's model id as the " +
       "subagent tool's model parameter.",
   );
   return lines.join("\n");

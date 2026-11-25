@@ -55,6 +55,7 @@ const TIERS = {
     analyst: "medium",
     reviewer: "medium",
     title: "small",
+    compaction: "small",
   },
 };
 
@@ -109,11 +110,13 @@ test("expansion writes the generated overlay shape and re-sync is a no-op", () =
       analyst: { model: "test-provider/medium-model" },
       reviewer: { model: "test-provider/medium-model" },
       title: { model: "test-provider/small-model" },
+      compaction: { model: "test-provider/small-model" },
     },
     small_model: "test-provider/small-model",
   });
   assert.match(text, /^ {2}"agents": \{$/m);
   assert.match(text, /^ {4}"orchestrator": \{ "model": "test-provider\/big-model#max" \},$/m);
+  assert.equal(config.agents.compaction.model, "test-provider/small-model");
 
   const second = run(root, ["--profile", "demo"]);
   assert.equal(second.status, 0, second.stderr);

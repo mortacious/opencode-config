@@ -62,6 +62,7 @@ const TIERS = {
     analyst: "medium",
     reviewer: "medium",
     title: "small",
+    compaction: "small",
   },
 };
 
@@ -106,6 +107,7 @@ test("a tier-managed switch regenerates the overlay from tiers.json", async () =
   assert.equal(config.agents.orchestrator.model, "test-provider/big-model#max");
   assert.equal(config.agents.sidekick.model, "test-provider/medium-model");
   assert.equal(config.agents.reviewer.model, "test-provider/medium-model");
+  assert.equal(config.agents.compaction.model, "test-provider/small-model");
   assert.equal(config.small_model, "test-provider/small-model");
 
   // The authored mapping is untouched: descriptions stay, models stay.

@@ -20,7 +20,7 @@ import { SyntaxStyle } from "@opentui/core";
 import { Plugin } from "@opencode/plugin/tui";
 import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
 
-import { cellLabel, mergeCell, outputParts } from "./lib/panel.js";
+import { cellLabel, mergeCell, outputParts, panelHeader } from "./lib/panel.js";
 import { Kernel } from "./rpc.js";
 import { syntaxStyles } from "./lib/syntax.js";
 
@@ -163,17 +163,7 @@ export default Plugin.define({
         return typeof name === "string" && name !== "" ? name : "python";
       };
 
-      const header = () => {
-        const m = meta();
-        const selection =
-          m && typeof m.selection === "string" && m.selection !== "" ? m.selection : "default";
-        const visible = cells().filter((cell) => cell.type !== "boundary").length;
-        const total = m && typeof m.cells === "number" ? m.cells : visible;
-        const truncated = m && m.truncated === true ? " (truncated)" : "";
-        return `Kernel - ${selection} - ${language()} - ${total} cell${
-          total === 1 ? "" : "s"
-        }${truncated}`;
-      };
+      const header = () => panelHeader(meta(), cells());
 
       const cap = () => {
         const rows = context.renderer?.terminalHeight ?? 40;

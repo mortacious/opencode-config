@@ -271,6 +271,11 @@ fi
 # declares runtime dependencies (@opentui/core, @opentui/solid, solid-js) that
 # the opencode host supplies at runtime; they are installed here so local
 # development and the plugin's test suite run against the same versions.
+# `@opencode/plugin` is a host-supplied optional peer and is deliberately not
+# installed, because a plugin-local copy throws at runtime.
+# Note: @opentui 0.8.4 declares node >=26.4 while the repo engines say >=22.18;
+# npm only warns, and the host supplies OpenTUI at runtime (Bun), so npm
+# installs under node 22 are expected to print an engine warning.
 echo "Installing kernel plugin deps (plugin-src/kernel)..."
 if ! ( cd "$CONFIG_DIR/plugin-src/kernel" && npm install --no-audit --no-fund ); then
   echo "WARNING: failed to install kernel plugin deps; the plugin will not load." >&2

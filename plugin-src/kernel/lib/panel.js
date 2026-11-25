@@ -152,6 +152,28 @@ export function outputParts(cell) {
 }
 
 /**
+ * Panel header line: `Kernel - <selection> - <language> - <total> cell[s]`,
+ * plus a ` (truncated)` suffix when the journal capped the snapshot. Selection
+ * defaults to "default", language to "python", and the total falls back to the
+ * non-boundary cell count when the meta does not carry a number. tui.tsx and
+ * the live harness both render this one string.
+ */
+export function panelHeader(meta, cells) {
+  const selection =
+    isObject(meta) && typeof meta.selection === "string" && meta.selection !== ""
+      ? meta.selection
+      : "default";
+  const name = isObject(meta) && isObject(meta.language_info) ? meta.language_info.name : null;
+  const language = typeof name === "string" && name !== "" ? name : "python";
+  const visible = (Array.isArray(cells) ? cells : []).filter(
+    (cell) => !isObject(cell) || cell.type !== "boundary",
+  ).length;
+  const total = isObject(meta) && typeof meta.cells === "number" ? meta.cells : visible;
+  const truncated = isObject(meta) && meta.truncated === true ? " (truncated)" : "";
+  return `Kernel - ${selection} - ${language} - ${total} cell${total === 1 ? "" : "s"}${truncated}`;
+}
+
+/**
  * Row label: `In[n]` from the execution count (falling back to the visible
  * position), with a "(truncated)" marker when the journal capped the record.
  * Boundary records get the divider text.

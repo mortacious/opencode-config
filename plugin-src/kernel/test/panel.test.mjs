@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { cellLabel, mergeCell, outputParts } from "../lib/panel.js";
+import { cellLabel, mergeCell, outputParts, panelHeader } from "../lib/panel.js";
 
 function cell(overrides = {}) {
   return {
@@ -239,4 +239,41 @@ test("cellLabel falls back to the visible position", () => {
   assert.equal(cellLabel(cell({ execution_count: "x" }), 4), "In[5]");
   assert.equal(cellLabel(cell({ execution_count: undefined }), undefined), "In[1]");
   assert.equal(cellLabel(null, 0), "In[?]");
+});
+
+test("panelHeader defaults the selection and language", () => {
+  assert.equal(panelHeader(null, []), "Kernel - default - python - 0 cells");
+  assert.equal(
+    panelHeader({ language_info: { name: "" }, selection: "" }, []),
+    "Kernel - default - python - 0 cells",
+  );
+});
+
+test("panelHeader uses the meta selection, language, and cell total", () => {
+  assert.equal(
+    panelHeader(
+      { selection: "analysis", language_info: { name: "julia" }, cells: 12 },
+      [],
+    ),
+    "Kernel - analysis - julia - 12 cells",
+  );
+});
+
+test("panelHeader counts non-boundary cells when meta has no total", () => {
+  const cells = [
+    { type: "cell", execution_count: 1 },
+    { type: "boundary", text: "Kernel reset" },
+    { type: "cell", execution_count: 2 },
+  ];
+  assert.equal(panelHeader({}, cells), "Kernel - default - python - 2 cells");
+  assert.equal(
+    panelHeader({ cells: 1 }, cells),
+    "Kernel - default - python - 1 cell",
+  );
+});
+
+test("panelHeader adds the truncated suffix only for a capped snapshot", () => {
+  assert.equal(panelHeader({ cells: 3, truncated: true }, []), "Kernel - default - python - 3 cells (truncated)");
+  assert.equal(panelHeader({ cells: 1, truncated: true }, []), "Kernel - default - python - 1 cell (truncated)");
+  assert.equal(panelHeader({ cells: 3, truncated: false }, []), "Kernel - default - python - 3 cells");
 });

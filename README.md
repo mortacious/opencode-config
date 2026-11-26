@@ -52,9 +52,11 @@ debugger for Python and C/C++.
   Python path or a kernelspec name; empty auto-discovers `KERNEL_PYTHON`, the active venv/conda
   env, the project `.venv`/`venv`, then `python3`, taking the first with `ipykernel`). Inline
   output is capped at 50 KiB with the full text left in a log file; images are saved and returned
-  as paths. One timeout keeps the kernel when SIGINT is acknowledged and kills it only when the
-  kernel is unresponsive, in which case its state is lost. `reset` wipes state on purpose, and
-  is the way to switch interpreters.
+  as paths, and each executed cell's result text starts with an `In[n]` label (`Out[n]` marks
+  execute results; the cell source stays in the tool input and is not repeated in the result).
+  One timeout keeps the kernel when SIGINT is acknowledged and kills it only when the kernel is
+  unresponsive, in which case its state is lost. `reset` wipes state on purpose, and is the way to
+  switch interpreters.
 - **`kernel_export({path, title})`** writes the session journal as an nbformat 4.5 `.ipynb`,
   relative to the project root, adding `.ipynb` when missing and using `notebooks/<topic>.ipynb`
   by convention. It carries full outputs and images, records reset boundaries, and refuses past
@@ -72,12 +74,17 @@ debugger for Python and C/C++.
   needs ptrace permission. `get_output` reflects DAP output events, not every byte the target
   writes, so read a launched program's own stdout from the terminal.
 
-`/kernel` opens the `Kernel cells` session panel: syntax-highlighted cells, their outputs,
-images, and reset dividers for the current session, updating live through the plugin's `kernel`
-RPC (`cell` and `reset` events). It reads the same `meta.json` / `cells.jsonl` as export, so a
-new session shows an empty panel instead of an error. The panel renders PNG and JPEG outputs
-from the journal in place, up to 3 images per cell. Inline previews of saved image files in the
-transcript (PNG/JPEG, 3 per cell, 2 MiB each, 6 MiB total) separately need
+The transcript is the primary kernel cell view. With `"session": { "verbosity": "medium" }` in
+`opencode.jsonc`, ordinary tool calls including `kernel` render as their own rows while
+read/search exploration calls (`read`, `glob`, `grep`, `webfetch`, `websearch`) still group under
+`exploration`. Expanding a `kernel` call shows the source as its input, the executed cell's
+`In[n]`-labeled result text, and inline images. `/kernel` remains the optional full-session
+panel: syntax-highlighted cells, their outputs, images, and reset dividers
+for the current session, updating live through the plugin's `kernel` RPC (`cell` and `reset`
+events). It reads the same `meta.json` / `cells.jsonl` as export, so a new session shows an
+empty panel instead of an error. The panel renders PNG and JPEG outputs from the journal in
+place, up to 3 images per cell. Inline previews of saved image files in the transcript
+(PNG/JPEG, 3 per cell, 2 MiB each, 6 MiB total) separately need
 `"session": { "image_preview": true }` at the top level of `opencode.jsonc`; the saved image
 paths stay in the tool metadata either way.
 

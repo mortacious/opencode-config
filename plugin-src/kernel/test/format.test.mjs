@@ -27,7 +27,7 @@ test("preserves stream/result order and strips ANSI escapes", async () => {
     { imagesDir, logsDir },
   );
 
-  assert.equal(out.text, "first\nsecond\nOut[1]: 42\n");
+  assert.equal(out.text, "In[1]\nfirst\nsecond\nOut[1]: 42\n");
   assert.equal(out.executionCount, 1);
   assert.equal(out.status, "ok");
   assert.equal(out.truncated, false);
@@ -43,13 +43,13 @@ test("execute_result falls back from text/plain to markdown to html", async () =
     [{ op: "result", id: "a", executionCount: 2, data: { "text/markdown": "**bold**" } }],
     options,
   );
-  assert.equal(markdown.text, "Out[2]: **bold**\n");
+  assert.equal(markdown.text, "In[2]\nOut[2]: **bold**\n");
 
   const html = await formatResult(
     [{ op: "result", id: "a", executionCount: 3, data: { "text/html": "<b>bold</b>" } }],
     options,
   );
-  assert.equal(html.text, "Out[3]: bold\n");
+  assert.equal(html.text, "In[3]\nOut[3]: bold\n");
 });
 
 test("display_data saves images and lists absolute paths", async () => {
@@ -72,7 +72,7 @@ test("display_data saves images and lists absolute paths", async () => {
 
   assert.equal(out.images.length, 1);
   assert.equal(out.images[0], path.join(imagesDir, "5-1.png"));
-  assert.equal(out.text, `<Figure size 640x480>\nimage: ${out.images[0]}\n`);
+  assert.equal(out.text, `In[5]\n<Figure size 640x480>\nimage: ${out.images[0]}\n`);
   assert.deepEqual(await readFile(out.images[0]), payload);
 });
 
@@ -92,7 +92,7 @@ test("error events format ename, evalue, and traceback", async () => {
     { imagesDir, logsDir },
   );
 
-  assert.equal(out.text, "ValueError: bad value\nline one\nline two\n");
+  assert.equal(out.text, "In[4]\nValueError: bad value\nline one\nline two\n");
   assert.equal(out.status, "error");
   assert.equal(out.executionCount, 4);
 });
@@ -104,6 +104,30 @@ test("an empty cell reports (no output)", async () => {
     logsDir,
   });
   assert.equal(out.text, "(no output)");
+});
+
+test("a positive execution count prefixes the result text with In[n]", async () => {
+  const { imagesDir, logsDir } = await workdir();
+  const out = await formatResult(
+    [
+      { op: "stream", id: "a", name: "stdout", text: "hello\n" },
+      { op: "done", id: "a", status: "ok", executionCount: 3 },
+    ],
+    { imagesDir, logsDir },
+  );
+
+  assert.equal(out.text, "In[3]\nhello\n");
+});
+
+test("an unknown execution count adds no In[n] header", async () => {
+  const { imagesDir, logsDir } = await workdir();
+  const out = await formatResult(
+    [{ op: "stream", id: "a", name: "stdout", text: "hello\n" }],
+    { imagesDir, logsDir },
+  );
+
+  assert.equal(out.executionCount, 0);
+  assert.equal(out.text, "hello\n");
 });
 
 test("large output is capped with head, tail, and a full log file", async () => {
@@ -119,8 +143,8 @@ test("large output is capped with head, tail, and a full log file", async () => 
 
   assert.equal(out.truncated, true);
   assert.equal(out.logPath, path.join(logsDir, "cell-7.log"));
-  assert.equal(await readFile(out.logPath, "utf8"), body);
-  assert.ok(out.text.startsWith("x".repeat(100)));
+  assert.equal(await readFile(out.logPath, "utf8"), `In[7]\n${body}`);
+  assert.ok(out.text.startsWith(`In[7]\n${"x".repeat(100)}`));
   assert.ok(out.text.includes("... [output elided] ..."));
   assert.ok(
     out.text.endsWith(`[truncated at 51200 bytes; full log: ${out.logPath}]`),
@@ -140,7 +164,7 @@ test("clear_output wait:false drops prior output", async () => {
     { imagesDir, logsDir },
   );
 
-  assert.equal(out.text, "after\n");
+  assert.equal(out.text, "In[1]\nafter\n");
 });
 
 test("clear_output wait:true clears at the next output", async () => {
@@ -156,7 +180,7 @@ test("clear_output wait:true clears at the next output", async () => {
     ],
     options,
   );
-  assert.equal(deferred.text, "after\n");
+  assert.equal(deferred.text, "In[1]\nafter\n");
 
   const untouched = await formatResult(
     [
@@ -166,7 +190,7 @@ test("clear_output wait:true clears at the next output", async () => {
     ],
     options,
   );
-  assert.equal(untouched.text, "before\n");
+  assert.equal(untouched.text, "In[1]\nbefore\n");
 });
 
 test("update_display by display_id replaces the earlier data and image", async () => {
@@ -195,7 +219,7 @@ test("update_display by display_id replaces the earlier data and image", async (
 
   assert.equal(out.images.length, 1);
   assert.equal(out.images[0], path.join(imagesDir, "5-2.png"));
-  assert.equal(out.text, `v2\nimage: ${out.images[0]}\n`);
+  assert.equal(out.text, `In[5]\nv2\nimage: ${out.images[0]}\n`);
   assert.equal(out.imageParts.length, 1);
   assert.equal(out.imageParts[0].base64, secondImage.toString("base64"));
   const content = buildContent(out.text, out.imageParts);
@@ -261,7 +285,7 @@ test("update_display without a prior display appends the new output", async () =
     { imagesDir, logsDir },
   );
 
-  assert.equal(out.text, "fresh\n");
+  assert.equal(out.text, "In[2]\nfresh\n");
 });
 
 test("stripAnsi, stripHtml, and plainText helpers decode output data", () => {
@@ -286,7 +310,7 @@ test("a small png becomes a text part plus one file part", async () => {
     { imagesDir, logsDir },
   );
 
-  assert.equal(out.text, `<Figure>\nimage: ${out.images[0]}\n`);
+  assert.equal(out.text, `In[5]\n<Figure>\nimage: ${out.images[0]}\n`);
   const content = buildContent(out.text, out.imageParts);
   assert.deepEqual(content, [
     { type: "text", text: out.text },
@@ -393,6 +417,6 @@ test("a result without images keeps the plain text content", async () => {
   );
 
   assert.deepEqual(out.imageParts, []);
-  assert.equal(buildContent(out.text, out.imageParts), "hello\n");
+  assert.equal(buildContent(out.text, out.imageParts), "In[1]\nhello\n");
   assert.equal(buildContent("plain", undefined), "plain");
 });

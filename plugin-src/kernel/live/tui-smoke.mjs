@@ -25,8 +25,9 @@
 // Transcript detail: the TUI collapses a completed tool call and its output.
 // The pane therefore runs with `session.verbosity` high (inline CLI setting,
 // not a config edit), which renders the `kernel [code=...]` call row; one
-// synthetic click on that row expands it, and the expanded output carries the
-// `image: <path>.png` line the harness asserts on.
+// synthetic click on that row expands it, and the expanded output carries both
+// the journal cell's `In[n]` result header and the `image: <path>.png` line the
+// harness asserts on.
 //
 // Session detail: `opencode run --session <id>` lands the session in the
 // shared opencode session DB (tmp XDG_STATE_HOME does not isolate it), while
@@ -703,6 +704,13 @@ async function main() {
   state.tmuxName = tmuxName;
   const capture = makeCapture(tmuxName, capsDir);
   const expectedImageLine = `${TRANSCRIPT_IMAGE_PREFIX}${state.png}`;
+  // The expanded call must show the same cell's result header. The count comes
+  // from the journal record the image checks above accepted, and the pattern
+  // anchors the label to a whole line so In[10] cannot satisfy In[1].
+  const resultHeader = `In[${hit.cell.execution_count}]`;
+  const resultHeaderPattern = new RegExp(
+    `(^|\\n)In\\[${hit.cell.execution_count}\\](\\n|$)`,
+  );
 
   log("[7/8] transcript: the validated image path");
   // The transcript hides a completed call's output until the call row is
@@ -710,12 +718,14 @@ async function main() {
   // most three times and never on a row whose output is already visible.
   const transcriptDeadline = Date.now() + TRANSCRIPT_TIMEOUT_MS;
   const hasImageLine = (text) => text.includes(expectedImageLine);
+  const hasResultHeader = (text) => resultHeaderPattern.test(text);
+  const hasCellView = (text) => hasImageLine(text) && hasResultHeader(text);
   let transcript = "";
   let clicks = 0;
   let sawToolRow = false;
   for (;;) {
     transcript = await capture("transcript");
-    if (hasImageLine(transcript)) break;
+    if (hasCellView(transcript)) break;
     const toolRow = inspectToolRow(transcript);
     if (toolRow.row > 0) sawToolRow = true;
     if (toolRow.row > 0 && !toolRow.expanded && clicks < MAX_CLICKS) {
@@ -723,7 +733,7 @@ async function main() {
       clickRow(tmuxName, toolRow.row);
       await sleep(800);
       transcript = await capture("transcript-expanded");
-      if (hasImageLine(transcript)) break;
+      if (hasCellView(transcript)) break;
     }
     if (Date.now() >= transcriptDeadline) break;
     await sleep(POLL_MS);
@@ -737,6 +747,11 @@ async function main() {
     hasImageLine(transcript),
     "transcript image path",
     `no "${TRANSCRIPT_IMAGE_PREFIX}<png path>" for ${state.png} within ${TRANSCRIPT_TIMEOUT_MS / 1000}s after ${clicks} click(s); captures in ${capsDir}`,
+  );
+  require_(
+    hasResultHeader(transcript),
+    `transcript ${resultHeader} result header`,
+    `no "${resultHeader}" result header within ${TRANSCRIPT_TIMEOUT_MS / 1000}s after ${clicks} click(s); captures in ${capsDir}`,
   );
 
   log("[8/8] /kernel panel: header + cell label");

@@ -295,7 +295,7 @@ test("image outputs return a text part plus an inline file part", async () => {
   assert.deepEqual(result.content, [
     {
       type: "text",
-      text: `<Figure size 640x480>\nimage: ${expected}\n`,
+      text: `In[3]\n<Figure size 640x480>\nimage: ${expected}\n`,
     },
     {
       type: "file",
@@ -319,7 +319,7 @@ test("a cell without images keeps plain text content", async () => {
   const result = await tools.tools.kernel.execute({ code: "1" }, CTX);
 
   assert.equal(typeof result.content, "string");
-  assert.equal(result.content, "run:1\nOut[1]: 1\n");
+  assert.equal(result.content, "In[1]\nrun:1\nOut[1]: 1\n");
   assert.deepEqual(result.metadata.images, []);
 });
 
@@ -341,7 +341,7 @@ test("output over 50 KiB is truncated to a log file", async () => {
     result.content.includes(`[truncated at 51200 bytes; full log: ${expectedLog}]`),
     result.content.slice(-120),
   );
-  assert.equal((await readFile(expectedLog, "utf8")).length, body.length);
+  assert.equal(await readFile(expectedLog, "utf8"), `In[9]\n${body}`);
 });
 
 test("kernel_export resolves relative paths and appends .ipynb", async () => {

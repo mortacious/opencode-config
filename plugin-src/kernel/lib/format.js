@@ -274,6 +274,12 @@ export async function formatResult(events, options = {}) {
   if (status === "ok" && sawError) status = "error";
   if (text.trim() === "") text = "(no output)";
 
+  // The cell's source lives in the tool input; the result text is only its
+  // output side. An In[n] label makes the expanded transcript read like a
+  // notebook cell without repeating the source into model context. It goes in
+  // before the cap so the 50 KiB budget and the full log include it.
+  if (executionCount > 0) text = `In[${executionCount}]\n${text}`;
+
   let truncated = false;
   let logPath = null;
   const cap = Number(capBytes);

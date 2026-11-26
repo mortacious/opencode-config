@@ -705,11 +705,13 @@ async function main() {
   const capture = makeCapture(tmuxName, capsDir);
   const expectedImageLine = `${TRANSCRIPT_IMAGE_PREFIX}${state.png}`;
   // The expanded call must show the same cell's result header. The count comes
-  // from the journal record the image checks above accepted, and the pattern
-  // anchors the label to a whole line so In[10] cannot satisfy In[1].
+  // from the journal record the image checks above accepted. The host renders
+  // its own `output:` prefix and padding on the same line as the label
+  // (`       output: In[1]`), so the pattern matches the label at a token
+  // boundary instead of a whole line; In[10] still cannot satisfy In[1].
   const resultHeader = `In[${hit.cell.execution_count}]`;
   const resultHeaderPattern = new RegExp(
-    `(^|\\n)In\\[${hit.cell.execution_count}\\](\\n|$)`,
+    `(^|[\\s:])In\\[${hit.cell.execution_count}\\](?=\\s|$)`,
   );
 
   log("[7/8] transcript: the validated image path");

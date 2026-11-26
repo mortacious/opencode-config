@@ -1,0 +1,27 @@
+{
+  "name": "opencode-kernel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./tui": "./tui.tsx"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "test:kernel:live": "node live/tui-smoke.mjs"
+  },
+  "dependencies": {
+    "@opentui/core": "0.8.4",
+    "@opentui/solid": "0.8.4",
+    "solid-js": "^1.9.16"
+  },
+  "peerDependencies": {
+    "@opencode/plugin": "^2.3.2"
+  },
+  "peerDependenciesMeta": {
+    "@opencode/plugin": {
+      "optional": true
+    }
+  }
+}

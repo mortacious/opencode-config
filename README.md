@@ -8,6 +8,11 @@ Personal opencode configuration. Managed as a public git repo for deployment acr
   targets the 2.3 API line; `install.sh` aborts early on older versions
   (`SKIP_OPENCODE_VERSION_CHECK=1` bypasses the check, unsupported).
 - Node.js >= 22 with npm - for `scripts/` and the plugin packages.
+- Python, per environment: the interpreter you point the kernel at needs `ipykernel` (it ships
+  `debugpy`), and whichever Python launches the kernel host needs `jupyter_client`. The kernel
+  does not create or manage an environment.
+- Optional, for C/C++ PID attach only: ptrace permission (`kernel.yama.ptrace_scope=0`). Launch
+  mode, Python launch, and Python TCP attach do not need it.
 
 ## Deploy to a new machine
 
@@ -33,6 +38,78 @@ Personal opencode configuration. Managed as a public git repo for deployment acr
 12. The local plugin package `plugin-src/fusion-bootstrap` injects the Fusion skill reminder as an extra system part (primaries get the delegation-template nudge, children get the "task prompt is the full spec" reminder). Its dependencies are installed by `./install.sh`.
 13. The local plugin package `plugin-src/fusion-channel` provides the steer/report channel (`/steer` command, `steer` tool, durable inbox log). It has no external dependencies; `./install.sh` installs it like the others.
 14. The local plugin package `plugin-src/subagent-cap` caps concurrent subagent spawns per profile (unlimited by default). Its dependencies are installed by `./install.sh`.
+15. The local plugin package `plugin-src/kernel` adds the `kernel` and `kernel_export` tools (one persistent Python kernel per session, plus nbformat 4.5 export); the `debugger` MCP server (`@debugmcp/mcp-debugger@0.26.0`) is configured in `opencode.jsonc`. Both are covered in "Kernel and debugger" below, and `scripts/check-runtime.sh` reports whether their Python prerequisites are present.
+
+## Kernel and debugger
+
+Two additions cover work that outlives one tool call: a session-scoped Python kernel, and a DAP
+debugger for Python and C/C++.
+
+- **`kernel`** runs one Python cell per call in a persistent Jupyter kernel owned by
+  `plugin-src/kernel/` (plugin + `host.py`). State persists across calls and compaction, each
+  session has its own kernel, and a subagent never shares the parent's. Arguments: `code`,
+  `timeout` (seconds, 30 default, 0 disables, max 3600), `reset`, and `kernel` (an absolute
+  Python path or a kernelspec name; empty auto-discovers `KERNEL_PYTHON`, the active venv/conda
+  env, the project `.venv`/`venv`, then `python3`, taking the first with `ipykernel`). Inline
+  output is capped at 50 KiB with the full text left in a log file; images are saved and returned
+  as paths, and each executed cell's result text starts with an `In[n]` label (`Out[n]` marks
+  execute results; the cell source stays in the tool input and is not repeated in the result).
+  One timeout keeps the kernel when SIGINT is acknowledged and kills it only when the kernel is
+  unresponsive, in which case its state is lost. `reset` wipes state on purpose, and is the way to
+  switch interpreters.
+- **`kernel_export({path, title})`** writes the session journal as an nbformat 4.5 `.ipynb`,
+  relative to the project root, adding `.ipynb` when missing and using `notebooks/<topic>.ipynb`
+  by convention. It carries full outputs and images, records reset boundaries, and refuses past
+  1000 code cells or 2 MiB per cell. `--export-only` also works from a bare `python3`, since the
+  journal and metadata are the only inputs; set `PYTHON_EXPORT` to an absolute interpreter path to
+  override which Python performs the export (export-only - it does not select the kernel, and the
+  export needs only the standard library).
+- **`debugger`** is the MCP server configured as
+  `npx -y @debugmcp/mcp-debugger@0.26.0 stdio --log-level error`. It creates sessions, sets
+  breakpoints, launches or attaches to Python and C/C++ targets, and exposes stack traces,
+  scopes, locals, and expression evaluation. Python launch needs `executablePath` pointing at
+  the env interpreter (which must have `debugpy`, normally installed with `ipykernel`); C/C++
+  launch needs `-g -O0` and the binary as the script path; Python TCP attach needs a target
+  started with `python -m debugpy --listen 127.0.0.1:5678` that stays alive; C++ PID attach
+  needs ptrace permission. `get_output` reflects DAP output events, not every byte the target
+  writes, so read a launched program's own stdout from the terminal.
+
+The transcript is the primary kernel cell view. With `"session": { "verbosity": "medium" }` in
+`cli.json`, ordinary tool calls including `kernel` render as their own rows while
+read/search exploration calls (`read`, `glob`, `grep`, `webfetch`, `websearch`) still group under
+`exploration`. Expanding a `kernel` call shows the source as its input, the executed cell's
+`In[n]`-labeled result text, and inline images. `/kernel` remains the optional full-session
+panel: syntax-highlighted cells, their outputs, images, and reset dividers
+for the current session, updating live through the plugin's `kernel` RPC (`cell` and `reset`
+events). It reads the same `meta.json` / `cells.jsonl` as export, so a new session shows an
+empty panel instead of an error. The panel renders PNG and JPEG outputs from the journal in
+place, up to 3 images per cell. Inline previews of saved image files in the transcript
+(PNG/JPEG, 3 per cell, 2 MiB each, 6 MiB total) separately need
+`"session": { "image_preview": true }` at the top level of `cli.json`; the saved image
+paths stay in the tool metadata either way.
+
+Prerequisites are per environment, not vendored: `ipykernel` in each kernel env,
+`jupyter_client` in the host interpreter, and `debugpy` (from `ipykernel`) in each debug launch
+env. Run `scripts/check-runtime.sh` to report which are present; pass `--python <path>` to check
+a specific interpreter instead of the auto-discovered one. `./install.sh` runs this check as a
+hard gate: the bootstrap fails when no selected interpreter has `ipykernel`. The remedy is to
+activate a conda/venv env with `ipykernel`, set `KERNEL_PYTHON` to that env's interpreter, or run
+`scripts/check-runtime.sh --python <env>/bin/python`. `KERNEL_HOST_PYTHON` is the optional host
+interpreter for named kernelspecs and must import `jupyter_client` when set.
+
+The `kernel` and `kernel_export` tools are granted to both `orchestrator` and `sidekick`. They
+are a code-execution surface with the same trust as `shell`: a kernel cell runs arbitrary Python
+in the selected environment.
+
+State lives in `$XDG_STATE_HOME/opencode/kernel` (or
+`~/.local/state/opencode/kernel/<sessionID>` when `XDG_STATE_HOME` is unset): the per-session
+journal, metadata, and ephemeral kernelspec. It is safe to delete when no session is running.
+Exported notebooks are written under the project, not the state dir.
+
+For existing `.ipynb` files, the community `opencode-ipynb` plugin, if installed, is the right
+tool for inspecting, reading, editing, running, cleaning, and LSP-checking notebook files. This
+kernel is session-scoped and does not require a notebook file to exist. `kernel_export` writes a
+standard nbformat notebook that such a tool, or Jupyter itself, can then open and edit.
 
 ## What lives where
 

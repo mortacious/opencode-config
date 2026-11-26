@@ -19,6 +19,7 @@
     "./plugin-src/fusion-audit",
     "./plugin-src/fusion-bootstrap",
     "./plugin-src/fusion-channel",
+    "./plugin-src/kernel",
     "./plugin-src/profile-switcher",
     "./plugin-src/subagent-view",
     {
@@ -118,6 +119,11 @@
           "SRC_ACCESS_TOKEN": "{env:SRC_ACCESS_TOKEN}"
         },
         "disabled": true
+      },
+      "debugger": {
+        "type": "local",
+        "command": ["npx", "-y", "@debugmcp/mcp-debugger@0.26.0", "stdio", "--log-level", "error"],
+        "disabled": false
       }
     }
   },

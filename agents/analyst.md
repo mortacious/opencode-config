@@ -306,6 +306,101 @@ permissions:
   - action: shell
     resource: "*>*"
     effect: deny
+  # Kernel and debugger tools: exact tool ids only (no wildcard), appended
+  # last so findLast denies them after every rule above.
+  - action: "kernel"
+    resource: "*"
+    effect: deny
+  - action: "kernel_export"
+    resource: "*"
+    effect: deny
+  - action: "debugger_create_debug_session"
+    resource: "*"
+    effect: deny
+  - action: "debugger_list_debug_sessions"
+    resource: "*"
+    effect: deny
+  - action: "debugger_list_supported_languages"
+    resource: "*"
+    effect: deny
+  - action: "debugger_set_breakpoint"
+    resource: "*"
+    effect: deny
+  - action: "debugger_list_breakpoints"
+    resource: "*"
+    effect: deny
+  - action: "debugger_remove_breakpoint"
+    resource: "*"
+    effect: deny
+  - action: "debugger_clear_breakpoints"
+    resource: "*"
+    effect: deny
+  - action: "debugger_start_debugging"
+    resource: "*"
+    effect: deny
+  - action: "debugger_restart_debugging"
+    resource: "*"
+    effect: deny
+  - action: "debugger_attach_to_process"
+    resource: "*"
+    effect: deny
+  - action: "debugger_detach_from_process"
+    resource: "*"
+    effect: deny
+  - action: "debugger_expose_session"
+    resource: "*"
+    effect: deny
+  - action: "debugger_unexpose_session"
+    resource: "*"
+    effect: deny
+  - action: "debugger_get_stack_trace"
+    resource: "*"
+    effect: deny
+  - action: "debugger_list_threads"
+    resource: "*"
+    effect: deny
+  - action: "debugger_get_scopes"
+    resource: "*"
+    effect: deny
+  - action: "debugger_get_variables"
+    resource: "*"
+    effect: deny
+  - action: "debugger_get_local_variables"
+    resource: "*"
+    effect: deny
+  - action: "debugger_step_over"
+    resource: "*"
+    effect: deny
+  - action: "debugger_step_into"
+    resource: "*"
+    effect: deny
+  - action: "debugger_step_out"
+    resource: "*"
+    effect: deny
+  - action: "debugger_continue_execution"
+    resource: "*"
+    effect: deny
+  - action: "debugger_wait_for_stop"
+    resource: "*"
+    effect: deny
+  - action: "debugger_pause_execution"
+    resource: "*"
+    effect: deny
+  - action: "debugger_evaluate_expression"
+    resource: "*"
+    effect: deny
+  - action: "debugger_get_source_context"
+    resource: "*"
+    effect: deny
+  - action: "debugger_get_output"
+    resource: "*"
+    effect: deny
+  - action: "debugger_close_debug_session"
+    resource: "*"
+    effect: deny
+  - action: "debugger_hot_reload"
+    resource: "*"
+    effect: deny
 ---
 You are the ANALYST: the read-only generalist specialist in a Fusion pair. The orchestrator hands
 you one task - codebase exploration, external research, planning from a settled summary, visual

@@ -266,6 +266,23 @@ else
   echo "OK: subagent-cap plugin deps installed."
 fi
 
+# --- kernel plugin package (plugin-src/kernel) ---
+# The kernel tool host/plugin lives in plugin-src/kernel. Its package.json
+# declares runtime dependencies (@opentui/core, @opentui/solid, solid-js) that
+# the opencode host supplies at runtime; they are installed here so local
+# development and the plugin's test suite run against the same versions.
+# `@opencode/plugin` is a host-supplied optional peer and is deliberately not
+# installed, because a plugin-local copy throws at runtime.
+# Note: @opentui 0.8.4 declares node >=26.4 while the repo engines say >=22.18;
+# npm only warns, and the host supplies OpenTUI at runtime (Bun), so npm
+# installs under node 22 are expected to print an engine warning.
+echo "Installing kernel plugin deps (plugin-src/kernel)..."
+if ! ( cd "$CONFIG_DIR/plugin-src/kernel" && npm install --no-audit --no-fund ); then
+  echo "WARNING: failed to install kernel plugin deps; the plugin will not load." >&2
+else
+  echo "OK: kernel plugin deps installed."
+fi
+
 # --- opencode plugins ---
 # Note: the npm-listed plugin in opencode.jsonc "plugins" array
 # (opencode-dcp@2.0.5) is resolved by opencode itself on first run - it does
@@ -355,6 +372,19 @@ fi
 # overlay). A sync failure aborts the bootstrap.
 echo "Syncing tier-managed profile overlays..."
 node "$CONFIG_DIR/scripts/tiers-sync.mjs" --all
+
+# --- kernel/debugger runtime prerequisites ---
+# The kernel plugin needs a host Python with jupyter_client, a kernel
+# interpreter with ipykernel, Node >= 22, and npx. The check installs nothing;
+# it reports what is missing and how to fix it. Warnings (debugpy, ptrace,
+# mcp-debugger adapters) do not fail the bootstrap; hard failures do.
+echo "Checking kernel/debugger runtime prerequisites ..."
+if ! "$CONFIG_DIR/scripts/check-runtime.sh"; then
+  echo "ERROR: kernel/debugger prerequisites are missing (see above)." >&2
+  echo "  Install ipykernel/jupyter_client in the target env, or run the check" >&2
+  echo "  against a specific env: scripts/check-runtime.sh --python <env>/bin/python" >&2
+  exit 1
+fi
 
 echo "=== bootstrap complete ==="
 echo "Restart (or start) opencode to load the config."

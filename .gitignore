@@ -6,6 +6,10 @@ bin/*
 .venv/
 .venv-ddgs/
 
+# Python bytecode from the kernel plugin host (host.py) - never commit
+__pycache__/
+*.pyc
+
 # local API keys ({file:secrets/*} in opencode.jsonc) - never commit
 secrets/
 

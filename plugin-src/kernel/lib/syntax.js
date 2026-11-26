@@ -8,22 +8,38 @@
 // All files ASCII only.
 
 /**
+ * A usable color is a non-empty CSS string (which `SyntaxStyle.fromStyles`
+ * accepts) or an object with numeric `r`, `g`, and `b` (and an optional numeric
+ * `a`) - the shape of the resolved theme's RGBA tokens. Anything else is
+ * dropped so a malformed token cannot reach `SyntaxStyle.fromStyles`.
+ */
+function color(value) {
+  if (typeof value === "string") return value !== "" ? value : undefined;
+  if (value === null || typeof value !== "object") return undefined;
+  const { r, g, b, a } = value;
+  if (!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b)) return undefined;
+  if (a !== undefined && !Number.isFinite(a)) return undefined;
+  return value;
+}
+
+/**
  * Build the style map passed to `SyntaxStyle.fromStyles`. Keys are tree-sitter
- * capture names; values carry a foreground color plus any attributes the host
- * gives that capture. A theme without `syntax` (or without a usable text
- * color) yields only `default`, so the panel never throws on a partial theme.
+ * capture names; values carry a foreground color (an RGBA object from the
+ * resolved theme, or a CSS string) plus any attributes the host gives that
+ * capture. A theme without `syntax` yields only `default`; a `syntax` block
+ * without a usable text color still yields its captures, with `fg: undefined`,
+ * so the panel never throws on a partial theme.
  */
 export function syntaxStyles(theme) {
   const source = theme && typeof theme === "object" ? theme : {};
   const text = source.text && typeof source.text === "object" ? source.text : {};
-  const base = typeof text.base === "string" ? text.base : undefined;
+  const base = color(text.base);
   const styles = { default: { fg: base } };
 
   const syntax = source.syntax;
   if (!syntax || typeof syntax !== "object") return styles;
 
-  const pick = (value) =>
-    typeof value === "string" && value !== "" ? value : base;
+  const pick = (value) => color(value) ?? base;
   const feedback = text.feedback && typeof text.feedback === "object" ? text.feedback : {};
   const error = feedback.error && typeof feedback.error === "object" ? feedback.error : {};
   const warning = feedback.warning && typeof feedback.warning === "object" ? feedback.warning : {};

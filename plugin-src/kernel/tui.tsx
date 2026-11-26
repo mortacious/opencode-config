@@ -16,7 +16,7 @@
 //
 // All files ASCII only.
 
-import { SyntaxStyle } from "@opentui/core";
+import { SyntaxStyle, type RGBA, type StyleDefinitionInput } from "@opentui/core";
 import { Plugin } from "@opencode/plugin/tui";
 import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
 
@@ -55,23 +55,23 @@ type CellsResult = { meta: KernelMeta; cells: PanelCell[] };
 
 type KernelTheme = {
   text?: {
-    base?: string;
+    base?: RGBA;
     feedback?: {
-      error?: { base?: string };
-      warning?: { base?: string };
+      error?: { base?: RGBA };
+      warning?: { base?: RGBA };
     };
   };
-  markdown?: { link?: string };
+  markdown?: { link?: RGBA };
   syntax?: {
-    comment?: string;
-    string?: string;
-    number?: string;
-    keyword?: string;
-    type?: string;
-    function?: string;
-    operator?: string;
-    variable?: string;
-    punctuation?: string;
+    comment?: RGBA;
+    string?: RGBA;
+    number?: RGBA;
+    keyword?: RGBA;
+    type?: RGBA;
+    function?: RGBA;
+    operator?: RGBA;
+    variable?: RGBA;
+    punctuation?: RGBA;
   };
 };
 
@@ -90,10 +90,7 @@ function createSyntaxStyle(context: {
   renderer?: { nativeScene?: unknown };
 }): SyntaxStyle {
   const fromStyles = SyntaxStyle.fromStyles.bind(SyntaxStyle) as unknown as (
-    definitions: Record<
-      string,
-      { fg?: string; bold?: boolean; italic?: boolean; underline?: boolean }
-    >,
+    definitions: Record<string, StyleDefinitionInput>,
     owner?: unknown,
   ) => SyntaxStyle;
   return fromStyles(syntaxStyles(context.theme), context.renderer?.nativeScene);

@@ -29,6 +29,35 @@ function fakeTheme() {
   };
 }
 
+// The resolved host theme carries RGBA objects, not strings.
+function rgba(r, g, b, a = 255) {
+  return { r, g, b, a };
+}
+
+function fakeRgbaTheme() {
+  return {
+    text: {
+      base: rgba(16, 16, 16),
+      feedback: {
+        error: { base: rgba(255, 0, 0) },
+        warning: { base: rgba(255, 170, 0) },
+      },
+    },
+    markdown: { link: rgba(0, 170, 255) },
+    syntax: {
+      comment: rgba(136, 136, 136),
+      string: rgba(34, 170, 34),
+      number: rgba(170, 85, 34),
+      keyword: rgba(170, 34, 170),
+      type: rgba(34, 102, 170),
+      function: rgba(204, 136, 0),
+      operator: rgba(34, 119, 119),
+      variable: rgba(68, 119, 68),
+      punctuation: rgba(119, 119, 119),
+    },
+  };
+}
+
 test("default uses the theme text color", () => {
   const styles = syntaxStyles(fakeTheme());
   assert.deepEqual(styles.default, { fg: "#101010" });
@@ -190,4 +219,78 @@ test("every mapped style value is an object", () => {
     assert.equal(typeof value, "object", `${name} must be an object`);
     assert.notEqual(value, null, `${name} must not be null`);
   }
+});
+
+test("RGBA theme colors are preserved as fg", () => {
+  const theme = fakeRgbaTheme();
+  const styles = syntaxStyles(theme);
+  assert.deepEqual(styles.default, { fg: theme.text.base });
+  for (const name of [
+    "comment",
+    "string",
+    "number",
+    "keyword",
+    "type",
+    "function",
+    "operator",
+    "variable",
+    "punctuation",
+  ]) {
+    assert.deepEqual(styles[name].fg, theme.syntax[name]);
+    assert.notEqual(styles[name].fg, undefined);
+  }
+});
+
+test("no style from an RGBA theme has an undefined fg", () => {
+  const styles = syntaxStyles(fakeRgbaTheme());
+  for (const [name, value] of Object.entries(styles)) {
+    assert.notEqual(value.fg, undefined, `${name} needs an fg`);
+  }
+});
+
+test("RGBA theme keeps fallbacks and attributes", () => {
+  const theme = fakeRgbaTheme();
+  delete theme.syntax.string;
+  const styles = syntaxStyles(theme);
+  assert.deepEqual(styles.string, { fg: theme.text.base });
+  assert.deepEqual(styles["character.special"], { fg: theme.text.base });
+  assert.deepEqual(styles.comment, { fg: rgba(136, 136, 136), italic: true });
+  assert.deepEqual(styles["keyword.type"], {
+    fg: rgba(34, 102, 170),
+    bold: true,
+    italic: true,
+  });
+  assert.deepEqual(styles.tag, { fg: rgba(255, 0, 0) });
+  assert.deepEqual(styles.attribute, { fg: rgba(255, 170, 0) });
+  assert.deepEqual(styles["markup.link"], { fg: rgba(0, 170, 255), underline: true });
+});
+
+test("an empty-string RGBA-theme token falls back to the text color", () => {
+  const theme = fakeRgbaTheme();
+  theme.syntax.string = "";
+  const styles = syntaxStyles(theme);
+  assert.deepEqual(styles.string, { fg: theme.text.base });
+});
+
+test("a malformed theme token falls back to the text color", () => {
+  const malformed = [
+    { r: 1, g: 2 },
+    { r: 1, g: 2, b: "3" },
+    { r: Number.NaN, g: 0, b: 0 },
+    { r: 0, g: 0, b: 0, a: "255" },
+    {},
+  ];
+  for (const token of malformed) {
+    const theme = fakeTheme();
+    theme.syntax.string = token;
+    const styles = syntaxStyles(theme);
+    assert.deepEqual(styles.string, { fg: theme.text.base }, JSON.stringify(token));
+  }
+});
+
+test("an RGBA object without alpha is a usable color", () => {
+  const theme = fakeTheme();
+  const token = { r: 1, g: 2, b: 3 };
+  theme.syntax.string = token;
+  assert.deepEqual(syntaxStyles(theme).string, { fg: token });
 });

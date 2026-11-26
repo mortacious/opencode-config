@@ -75,7 +75,7 @@ debugger for Python and C/C++.
   writes, so read a launched program's own stdout from the terminal.
 
 The transcript is the primary kernel cell view. With `"session": { "verbosity": "medium" }` in
-`opencode.jsonc`, ordinary tool calls including `kernel` render as their own rows while
+`cli.json`, ordinary tool calls including `kernel` render as their own rows while
 read/search exploration calls (`read`, `glob`, `grep`, `webfetch`, `websearch`) still group under
 `exploration`. Expanding a `kernel` call shows the source as its input, the executed cell's
 `In[n]`-labeled result text, and inline images. `/kernel` remains the optional full-session
@@ -85,7 +85,7 @@ events). It reads the same `meta.json` / `cells.jsonl` as export, so a new sessi
 empty panel instead of an error. The panel renders PNG and JPEG outputs from the journal in
 place, up to 3 images per cell. Inline previews of saved image files in the transcript
 (PNG/JPEG, 3 per cell, 2 MiB each, 6 MiB total) separately need
-`"session": { "image_preview": true }` at the top level of `opencode.jsonc`; the saved image
+`"session": { "image_preview": true }` at the top level of `cli.json`; the saved image
 paths stay in the tool metadata either way.
 
 Prerequisites are per environment, not vendored: `ipykernel` in each kernel env,

@@ -434,8 +434,9 @@ function startTui({ tmuxName, projectDir, stateDir, python, sessionID, opencodeB
     `XDG_STATE_HOME=${shellQuote(stateDir)}`,
     `KERNEL_PYTHON=${shellQuote(python)}`,
     // Inline CLI setting (not a config file edit, not OPENCODE_CONFIG): the
-    // transcript must show the tool call row so it can be expanded.
-    `OPENCODE_CLI_CONFIG_CONTENT=${shellQuote(JSON.stringify({ session: { verbosity: "high" } }))}`,
+    // overlay carries the TUI's image and verbosity settings; the transcript
+    // must show the tool call row so it can be expanded.
+    `OPENCODE_CLI_CONFIG_CONTENT=${shellQuote(JSON.stringify({ session: { image_preview: true, verbosity: "high" } }))}`,
     shellQuote(opencodeBin),
     "--standalone",
     "--session",

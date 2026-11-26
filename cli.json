@@ -3,7 +3,9 @@
     "name": "catppuccin"
   },
   "session": {
-    "scrollbar": true
+    "scrollbar": true,
+    "image_preview": true,
+    "verbosity": "medium"
   },
   "tabs": {
     "layout": "horizontal"

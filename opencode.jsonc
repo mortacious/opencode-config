@@ -5,11 +5,6 @@
   // Single entrypoint: the built-in build/plan primaries are disabled below.
   "default_agent": "orchestrator",
   "websearch": { "provider": "exa" },
-  // Inline image previews in the transcript (kernel image outputs, screenshots);
-  // medium verbosity renders ordinary tool calls including `kernel` as their own
-  // rows while read/search exploration calls still group under `exploration`, so
-  // the expanded kernel call is the primary cell view.
-  "session": { "image_preview": true, "verbosity": "medium" },
   "experimental": { "subagent_depth": 2 },
   "plugins": [
     {
